@@ -1,5 +1,6 @@
 """Tests for the Formatters."""
 
+import warnings
 from math import pi
 
 try:
@@ -8,9 +9,11 @@ except:
     numpy = None
 import nose.tools as nt
 
-from IPython.config import Config
+from IPython import get_ipython
+from traitlets.config import Config
 from IPython.core.formatters import (
-    PlainTextFormatter, HTMLFormatter, PDFFormatter, _mod_name_key
+    PlainTextFormatter, HTMLFormatter, PDFFormatter, _mod_name_key,
+    DisplayFormatter, JSONFormatter,
 )
 from IPython.utils.io import capture_output
 
@@ -314,7 +317,6 @@ def test_print_method_bound():
     class MyHTML(object):
         def _repr_html_(self):
             return "hello"
-
     with capture_output() as captured:
         result = f(MyHTML)
     nt.assert_is(result, None)
@@ -324,6 +326,44 @@ def test_print_method_bound():
         result = f(MyHTML())
     nt.assert_equal(result, "hello")
     nt.assert_equal(captured.stderr, "")
+
+def test_print_method_weird():
+
+    class TextMagicHat(object):
+        def __getattr__(self, key):
+            return key
+
+    f = HTMLFormatter()
+    
+    text_hat = TextMagicHat()
+    nt.assert_equal(text_hat._repr_html_, '_repr_html_')
+    with capture_output() as captured:
+        result = f(text_hat)
+    
+    nt.assert_is(result, None)
+    nt.assert_not_in("FormatterWarning", captured.stderr)
+
+    class CallableMagicHat(object):
+        def __getattr__(self, key):
+            return lambda : key
+    
+    call_hat = CallableMagicHat()
+    with capture_output() as captured:
+        result = f(call_hat)
+    
+    nt.assert_equal(result, None)
+
+    class BadReprArgs(object):
+        def _repr_html_(self, extra, args):
+            return "html"
+    
+    bad = BadReprArgs()
+    with capture_output() as captured:
+        result = f(bad)
+    
+    nt.assert_is(result, None)
+    nt.assert_not_in("FormatterWarning", captured.stderr)
+
 
 def test_format_config():
     """config objects don't pretend to support fancy reprs with lazy attrs"""
@@ -338,3 +378,56 @@ def test_format_config():
         result = f(Config)
     nt.assert_is(result, None)
     nt.assert_equal(captured.stderr, "")
+
+def test_pretty_max_seq_length():
+    f = PlainTextFormatter(max_seq_length=1)
+    lis = list(range(3))
+    text = f(lis)
+    nt.assert_equal(text, '[0, ...]')
+    f.max_seq_length = 0
+    text = f(lis)
+    nt.assert_equal(text, '[0, 1, 2]')
+    text = f(list(range(1024)))
+    lines = text.splitlines()
+    nt.assert_equal(len(lines), 1024)
+
+
+def test_ipython_display_formatter():
+    """Objects with _ipython_display_ defined bypass other formatters"""
+    f = get_ipython().display_formatter
+    catcher = []
+    class SelfDisplaying(object):
+        def _ipython_display_(self):
+            catcher.append(self)
+
+    class NotSelfDisplaying(object):
+        def __repr__(self):
+            return "NotSelfDisplaying"
+        
+        def _ipython_display_(self):
+            raise NotImplementedError
+    
+    yes = SelfDisplaying()
+    no = NotSelfDisplaying()
+    
+    d, md = f.format(no)
+    nt.assert_equal(d, {'text/plain': repr(no)})
+    nt.assert_equal(md, {})
+    nt.assert_equal(catcher, [])
+    
+    d, md = f.format(yes)
+    nt.assert_equal(d, {})
+    nt.assert_equal(md, {})
+    nt.assert_equal(catcher, [yes])
+
+def test_json_as_string_deprecated():
+    class JSONString(object):
+        def _repr_json_(self):
+            return '{}'
+    
+    f = JSONFormatter()
+    with warnings.catch_warnings(record=True) as w:
+        d = f(JSONString())
+    nt.assert_equal(d, {})
+    nt.assert_equal(len(w), 1)
+    

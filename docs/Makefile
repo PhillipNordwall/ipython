@@ -7,6 +7,7 @@ SPHINXBUILD   = sphinx-build
 PAPER         =
 SRCDIR        = source
 BUILDDIR      = build
+PYTHON        = python
 
 # Internal variables.
 PAPEROPT_a4     = -D latex_paper_size=a4
@@ -28,19 +29,19 @@ help:
 	@echo "  info        Texinfo files and run them through makeinfo"
 	@echo "  changes     an overview over all changed/added/deprecated items"
 	@echo "  linkcheck   check all external links for integrity (takes a long time)"
+	@echo "  gh-pages    clone IPython docs in ./gh-pages/ , build doc, autocommit"
 	@echo
 	@echo "Compound utility targets:"
 	@echo "pdf          latex and then runs the PDF generation"
 	@echo "all          html and pdf"
 	@echo "dist         all, and then puts the results in dist/"
-	@echo "gitwash-update update git workflow from source repo"
 
 clean_api:
 	-rm -rf $(SRCDIR)/api/generated
 
 clean: clean_api
 	-rm -rf build/* dist/*
-	-cd $(SRCDIR)/config/options; cat generated | xargs -r rm -f
+	-cd $(SRCDIR)/config/options; test -f generated && cat generated | xargs rm -f
 	-rm -rf $(SRCDIR)/config/options/generated
 	-rm -f $(SRCDIR)/interactive/magics-generated.txt
 
@@ -71,19 +72,19 @@ html html_noapi:
 automagic: source/interactive/magics-generated.txt
 
 source/interactive/magics-generated.txt: autogen_magics.py
-	python autogen_magics.py
+	$(PYTHON) autogen_magics.py
 	@echo "Created docs for line & cell magics"
 
 autoconfig: source/config/options/generated
 
 source/config/options/generated:
-	python autogen_config.py
+	$(PYTHON) autogen_config.py
 	@echo "Created docs for config options"
 
 api: source/api/generated/gen.txt
 
 source/api/generated/gen.txt:
-	python autogen_api.py
+	$(PYTHON) autogen_api.py
 	@echo "Build API docs finished."
 
 pickle:
@@ -134,9 +135,6 @@ linkcheck:
 	@echo "Link check complete; look for any errors in the above output " \
 	      "or in build/linkcheck/output.rst."
 
-gitwash-update:
-	python ../tools/gitwash_dumper.py source/development ipython
-
 nightly: dist
 	rsync -avH --delete dist/ ipython:www/doc/nightly
 
@@ -144,7 +142,7 @@ gh-pages: clean html
 	# if VERSION is unspecified, it will be dev
 	# For releases, VERSION should be just the major version,
 	# e.g. VERSION=2 make gh-pages
-	python gh-pages.py $(VERSION)
+	$(PYTHON) gh-pages.py $(VERSION)
 
 texinfo:
 	mkdir -p $(BUILDDIR)/texinfo

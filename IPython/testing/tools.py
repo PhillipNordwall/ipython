@@ -36,7 +36,7 @@ try:
 except ImportError:
     has_nose = False
 
-from IPython.config.loader import Config
+from traitlets.config.loader import Config
 from IPython.utils.process import get_output_error_code
 from IPython.utils.text import list_strings
 from IPython.utils.io import temp_pyfile, Tee
@@ -177,7 +177,7 @@ def get_ipython_cmd(as_string=False):
 
     return ipython_cmd
 
-def ipexec(fname, options=None):
+def ipexec(fname, options=None, commands=()):
     """Utility to call 'ipython filename'.
 
     Starts IPython with a minimal and safe configuration to make startup as fast
@@ -192,6 +192,9 @@ def ipexec(fname, options=None):
 
     options : optional, list
       Extra command-line flags to be passed to IPython.
+
+    commands : optional, list
+      Commands to send in on stdin
 
     Returns
     -------
@@ -214,9 +217,17 @@ def ipexec(fname, options=None):
     full_fname = os.path.join(test_dir, fname)
     full_cmd = ipython_cmd + cmdargs + [full_fname]
     env = os.environ.copy()
-    env.pop('PYTHONWARNINGS', None)  # Avoid extraneous warnings appearing on stderr
-    p = Popen(full_cmd, stdout=PIPE, stderr=PIPE, env=env)
-    out, err = p.communicate()
+    # FIXME: ignore all warnings in ipexec while we have shims
+    # should we keep suppressing warnings here, even after removing shims?
+    env['PYTHONWARNINGS'] = 'ignore'
+    # env.pop('PYTHONWARNINGS', None)  # Avoid extraneous warnings appearing on stderr
+    for k, v in env.items():
+        # Debug a bizarre failure we've seen on Windows:
+        # TypeError: environment can only contain strings
+        if not isinstance(v, str):
+            print(k, v)
+    p = Popen(full_cmd, stdout=PIPE, stderr=PIPE, stdin=PIPE, env=env)
+    out, err = p.communicate(input=py3compat.str_to_bytes('\n'.join(commands)) or None)
     out, err = py3compat.bytes_to_str(out), py3compat.bytes_to_str(err)
     # `import readline` causes 'ESC[?1034h' to be output sometimes,
     # so strip that out before doing comparisons
@@ -226,7 +237,7 @@ def ipexec(fname, options=None):
 
 
 def ipexec_validate(fname, expected_out, expected_err='',
-                    options=None):
+                    options=None, commands=()):
     """Utility to call 'ipython filename' and validate output/error.
 
     This function raises an AssertionError if the validation fails.
@@ -254,7 +265,7 @@ def ipexec_validate(fname, expected_out, expected_err='',
 
     import nose.tools as nt
 
-    out, err = ipexec(fname, options)
+    out, err = ipexec(fname, options, commands)
     #print 'OUT', out  # dbg
     #print 'ERR', err  # dbg
     # If there are any errors, we must check those befor stdout, as they may be
@@ -433,17 +444,6 @@ def make_tempfile(name):
         os.unlink(name)
 
 
-@contextmanager
-def monkeypatch(obj, name, attr):
-    """
-    Context manager to replace attribute named `name` in `obj` with `attr`.
-    """
-    orig = getattr(obj, name)
-    setattr(obj, name, attr)
-    yield
-    setattr(obj, name, orig)
-
-
 def help_output_test(subcommand=''):
     """test that `ipython [subcommand] -h` works"""
     cmd = get_ipython_cmd() + [subcommand, '-h']
@@ -465,23 +465,3 @@ def help_all_output_test(subcommand=''):
     nt.assert_in("Class parameters", out)
     return out, err
 
-def assert_big_text_equal(a, b, chunk_size=80):
-    """assert that large strings are equal
-
-    Zooms in on first chunk that differs,
-    to give better info than vanilla assertEqual for large text blobs.
-    """
-    for i in range(0, len(a), chunk_size):
-        chunk_a = a[i:i + chunk_size]
-        chunk_b = b[i:i + chunk_size]
-        nt.assert_equal(chunk_a, chunk_b, "[offset: %i]\n%r != \n%r" % (
-            i, chunk_a, chunk_b))
-
-    if len(a) > len(b):
-        nt.fail("Length doesn't match (%i > %i). Extra text:\n%r" % (
-            len(a), len(b), a[len(b):]
-        ))
-    elif len(a) < len(b):
-        nt.fail("Length doesn't match (%i < %i). Extra text:\n%r" % (
-            len(a), len(b), b[len(a):]
-        ))

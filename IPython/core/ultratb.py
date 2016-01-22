@@ -83,6 +83,7 @@ Inheritance diagram:
 from __future__ import unicode_literals
 from __future__ import print_function
 
+import dis
 import inspect
 import keyword
 import linecache
@@ -222,19 +223,96 @@ def findsource(object):
     raise IOError('could not find code object')
 
 
+# This is a patched version of inspect.getargs that applies the (unmerged)
+# patch for http://bugs.python.org/issue14611 by Stefano Taschini.  This fixes
+# https://github.com/ipython/ipython/issues/8205 and
+# https://github.com/ipython/ipython/issues/8293
+def getargs(co):
+    """Get information about the arguments accepted by a code object.
+
+    Three things are returned: (args, varargs, varkw), where 'args' is
+    a list of argument names (possibly containing nested lists), and
+    'varargs' and 'varkw' are the names of the * and ** arguments or None."""
+    if not iscode(co):
+        raise TypeError('{!r} is not a code object'.format(co))
+
+    nargs = co.co_argcount
+    names = co.co_varnames
+    args = list(names[:nargs])
+    step = 0
+
+    # The following acrobatics are for anonymous (tuple) arguments.
+    for i in range(nargs):
+        if args[i][:1] in ('', '.'):
+            stack, remain, count = [], [], []
+            while step < len(co.co_code):
+                op = ord(co.co_code[step])
+                step = step + 1
+                if op >= dis.HAVE_ARGUMENT:
+                    opname = dis.opname[op]
+                    value = ord(co.co_code[step]) + ord(co.co_code[step+1])*256
+                    step = step + 2
+                    if opname in ('UNPACK_TUPLE', 'UNPACK_SEQUENCE'):
+                        remain.append(value)
+                        count.append(value)
+                    elif opname in ('STORE_FAST', 'STORE_DEREF'):
+                        if op in dis.haslocal:
+                            stack.append(co.co_varnames[value])
+                        elif op in dis.hasfree:
+                            stack.append((co.co_cellvars + co.co_freevars)[value])
+                        # Special case for sublists of length 1: def foo((bar))
+                        # doesn't generate the UNPACK_TUPLE bytecode, so if
+                        # `remain` is empty here, we have such a sublist.
+                        if not remain:
+                            stack[0] = [stack[0]]
+                            break
+                        else:
+                            remain[-1] = remain[-1] - 1
+                            while remain[-1] == 0:
+                                remain.pop()
+                                size = count.pop()
+                                stack[-size:] = [stack[-size:]]
+                                if not remain: break
+                                remain[-1] = remain[-1] - 1
+                            if not remain: break
+            args[i] = stack[0]
+
+    varargs = None
+    if co.co_flags & inspect.CO_VARARGS:
+        varargs = co.co_varnames[nargs]
+        nargs = nargs + 1
+    varkw = None
+    if co.co_flags & inspect.CO_VARKEYWORDS:
+        varkw = co.co_varnames[nargs]
+    return inspect.Arguments(args, varargs, varkw)
+
+
 # Monkeypatch inspect to apply our bugfix.
 def with_patch_inspect(f):
     """decorator for monkeypatching inspect.findsource"""
 
     def wrapped(*args, **kwargs):
         save_findsource = inspect.findsource
+        save_getargs = inspect.getargs
         inspect.findsource = findsource
+        inspect.getargs = getargs
         try:
             return f(*args, **kwargs)
         finally:
             inspect.findsource = save_findsource
+            inspect.getargs = save_getargs
 
     return wrapped
+
+
+if py3compat.PY3:
+    fixed_getargvalues = inspect.getargvalues
+else:
+    # Fixes for https://github.com/ipython/ipython/issues/8293
+    #       and https://github.com/ipython/ipython/issues/8205.
+    # The relevant bug is caused by failure to correctly handle anonymous tuple
+    # unpacking, which only exists in Python 2.
+    fixed_getargvalues = with_patch_inspect(inspect.getargvalues)
 
 
 def fix_frame_records_filenames(records):
@@ -245,14 +323,17 @@ def fix_frame_records_filenames(records):
     """
     fixed_records = []
     for frame, filename, line_no, func_name, lines, index in records:
-        # Look inside the frame's globals dictionary for __file__, which should
-        # be better.
-        better_fn = frame.f_globals.get('__file__', None)
-        if isinstance(better_fn, str):
-            # Check the type just in case someone did something weird with
-            # __file__. It might also be None if the error occurred during
-            # import.
-            filename = better_fn
+        # Look inside the frame's globals dictionary for __file__,
+        # which should be better. However, keep Cython filenames since
+        # we prefer the source filenames over the compiled .so file.
+        filename = py3compat.cast_unicode_py2(filename, "utf-8")
+        if not filename.endswith(('.pyx', '.pxd', '.pxi')):
+            better_fn = frame.f_globals.get('__file__', None)
+            if isinstance(better_fn, str):
+                # Check the type just in case someone did something weird with
+                # __file__. It might also be None if the error occurred during
+                # import.
+                filename = better_fn
         fixed_records.append((frame, filename, line_no, func_name, lines, index))
     return fixed_records
 
@@ -537,9 +618,9 @@ class ListTB(TBTools):
         list = []
         for filename, lineno, name, line in extracted_list[:-1]:
             item = '  File %s"%s"%s, line %s%d%s, in %s%s%s\n' % \
-                   (Colors.filename, filename, Colors.Normal,
+                   (Colors.filename, py3compat.cast_unicode_py2(filename, "utf-8"), Colors.Normal,
                     Colors.lineno, lineno, Colors.Normal,
-                    Colors.name, name, Colors.Normal)
+                    Colors.name, py3compat.cast_unicode_py2(name, "utf-8"), Colors.Normal)
             if line:
                 item += '    %s\n' % line.strip()
             list.append(item)
@@ -547,9 +628,9 @@ class ListTB(TBTools):
         filename, lineno, name, line = extracted_list[-1]
         item = '%s  File %s"%s"%s, line %s%d%s, in %s%s%s%s\n' % \
                (Colors.normalEm,
-                Colors.filenameEm, filename, Colors.normalEm,
+                Colors.filenameEm, py3compat.cast_unicode_py2(filename, "utf-8"), Colors.normalEm,
                 Colors.linenoEm, lineno, Colors.normalEm,
-                Colors.nameEm, name, Colors.normalEm,
+                Colors.nameEm, py3compat.cast_unicode_py2(name, "utf-8"), Colors.normalEm,
                 Colors.Normal)
         if line:
             item += '%s    %s%s\n' % (Colors.line, line.strip(),
@@ -722,18 +803,26 @@ class VerboseTB(TBTools):
             #print '*** record:',file,lnum,func,lines,index  # dbg
             if not file:
                 file = '?'
-            elif not (file.startswith(str("<")) and file.endswith(str(">"))):
-                # Guess that filenames like <string> aren't real filenames, so
-                # don't call abspath on them.
-                try:
-                    file = abspath(file)
-                except OSError:
-                    # Not sure if this can still happen: abspath now works with
-                    # file names like <string>
-                    pass
+            elif file.startswith(str("<")) and file.endswith(str(">")):
+                # Not a real filename, no problem...
+                pass
+            elif not os.path.isabs(file):
+                # Try to make the filename absolute by trying all
+                # sys.path entries (which is also what linecache does)
+                for dirname in sys.path:
+                    try:
+                        fullname = os.path.join(dirname, file)
+                        if os.path.isfile(fullname):
+                            file = os.path.abspath(fullname)
+                            break
+                    except Exception:
+                        # Just in case that sys.path contains very
+                        # strange entries...
+                        pass
+
             file = py3compat.cast_unicode(file, util_path.fs_encoding)
             link = tpl_link % file
-            args, varargs, varkw, locals = inspect.getargvalues(frame)
+            args, varargs, varkw, locals = fixed_getargvalues(frame)
 
             if func == '?':
                 call = ''
@@ -937,9 +1026,10 @@ class VerboseTB(TBTools):
         head = self.prepare_header(etype, self.long_header)
         records = self.get_records(etb, number_of_lines_of_context, tb_offset)
 
-        frames = self.format_records(records)
         if records is None:
             return ""
+
+        frames = self.format_records(records)
 
         formatted_exception = self.format_exception(etype, evalue)
         if records:
@@ -974,6 +1064,8 @@ class VerboseTB(TBTools):
             cause = getattr(exception_value, '__cause__', None)
             if cause:
                 return cause
+            if getattr(exception_value, '__suppress_context__', False):
+                return None
             return getattr(exception_value, '__context__', None)
 
         chained_evalue = get_chained_exception(evalue)
@@ -1002,12 +1094,14 @@ class VerboseTB(TBTools):
                 etype, evalue, etb = exception
             else:
                 evalue = None
+            chained_exc_ids = set()
             while evalue:
                 formatted_exceptions += self.format_exception_as_a_whole(etype, evalue, etb, lines_of_context,
                                                                          chained_exceptions_tb_offset)
                 exception = self.get_parts_of_chained_exception(evalue)
 
-                if exception:
+                if exception and not id(exception[1]) in chained_exc_ids:
+                    chained_exc_ids.add(id(exception[1])) # trace exception to avoid infinite 'cause' loop
                     formatted_exceptions += self.prepare_chained_exception_message(evalue.__cause__)
                     etype, evalue, etb = exception
                 else:
@@ -1235,9 +1329,9 @@ class AutoFormattedTB(FormattedTB):
 class ColorTB(FormattedTB):
     """Shorthand to initialize a FormattedTB in Linux colors mode."""
 
-    def __init__(self, color_scheme='Linux', call_pdb=0):
+    def __init__(self, color_scheme='Linux', call_pdb=0, **kwargs):
         FormattedTB.__init__(self, color_scheme=color_scheme,
-                             call_pdb=call_pdb)
+                             call_pdb=call_pdb, **kwargs)
 
 
 class SyntaxTB(ListTB):
@@ -1314,47 +1408,3 @@ def eqrepr(value, repr=text_repr):
 
 def nullrepr(value, repr=text_repr):
     return ''
-
-
-#----------------------------------------------------------------------------
-
-# module testing (minimal)
-if __name__ == "__main__":
-    def spam(c, d_e):
-        (d, e) = d_e
-        x = c + d
-        y = c * d
-        foo(x, y)
-
-    def foo(a, b, bar=1):
-        eggs(a, b + bar)
-
-    def eggs(f, g, z=globals()):
-        h = f + g
-        i = f - g
-        return h / i
-
-    print('')
-    print('*** Before ***')
-    try:
-        print(spam(1, (2, 3)))
-    except:
-        traceback.print_exc()
-    print('')
-
-    handler = ColorTB()
-    print('*** ColorTB ***')
-    try:
-        print(spam(1, (2, 3)))
-    except:
-        handler(*sys.exc_info())
-    print('')
-
-    handler = VerboseTB()
-    print('*** VerboseTB ***')
-    try:
-        print(spam(1, (2, 3)))
-    except:
-        handler(*sys.exc_info())
-    print('')
-

@@ -20,12 +20,8 @@ on the IPython GitHub wiki.
    :maxdepth: 1
 
    how_ipython_works
-   messaging
-   kernels
    wrapperkernels
    execution
-   parallel_messages
-   parallel_connections
    lexer
    pycompat
    config

@@ -64,7 +64,7 @@ def backport_pr(branch, num, project='ipython/ipython'):
     fname = "PR%i.patch" % num
     if os.path.exists(fname):
         print("using patch from {fname}".format(**locals()))
-        with open(fname) as f:
+        with open(fname, 'rb') as f:
             patch = f.read()
     else:
         req = urlopen(patch_url)
@@ -107,7 +107,7 @@ def backport_pr(branch, num, project='ipython/ipython'):
 
     return 0
 
-backport_re = re.compile(r"[Bb]ackport.*?(\d+)")
+backport_re = re.compile(r"(?:[Bb]ackport|[Mm]erge).*#(\d+)")
 
 def already_backported(branch, since_tag=None):
     """return set of PRs that have been backported already"""

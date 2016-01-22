@@ -73,7 +73,7 @@ line and cell mode::
 
 The builtin magics include:
 
-- Functions that work with code: :magic`run`, :magic:`edit`, :magic:`save`, :magic:`macro`,
+- Functions that work with code: :magic:`run`, :magic:`edit`, :magic:`save`, :magic:`macro`,
   :magic:`recall`, etc.
 - Functions which affect the shell: :magic:`colors`, :magic:`xmode`, :magic:`autoindent`,
   :magic:`automagic`, etc.
@@ -189,6 +189,8 @@ what the various options do.
 Profiles allow you to use IPython for different tasks, keeping separate config
 files and history for each one. More details in :ref:`the profiles section
 <profiles>`.
+
+.. _startup_files:
 
 Startup Files
 -------------

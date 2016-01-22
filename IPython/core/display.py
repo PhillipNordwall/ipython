@@ -1,27 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Top-level display functions for displaying object in different formats.
+"""Top-level display functions for displaying object in different formats."""
 
-Authors:
-
-* Brian Granger
-"""
-
-#-----------------------------------------------------------------------------
-#       Copyright (C) 2013 The IPython Development Team
-#
-#  Distributed under the terms of the BSD License.  The full license is in
-#  the file COPYING, distributed as part of this software.
-#-----------------------------------------------------------------------------
-
-#-----------------------------------------------------------------------------
-# Imports
-#-----------------------------------------------------------------------------
+# Copyright (c) IPython Development Team.
+# Distributed under the terms of the Modified BSD License.
 
 from __future__ import print_function
 
+import json
+import mimetypes
 import os
 import struct
-import mimetypes
+import warnings
 
 from IPython.core.formatters import _safe_get_formatter_method
 from IPython.utils.py3compat import (string_types, cast_bytes_py2, cast_unicode,
@@ -164,20 +153,13 @@ def display(*objs, **kwargs):
         format = InteractiveShell.instance().display_formatter.format
 
     for obj in objs:
-
-        # If _ipython_display_ is defined, use that to display this object.
-        display_method = _safe_get_formatter_method(obj, '_ipython_display_')
-        if display_method is not None:
-            try:
-                display_method(**kwargs)
-            except NotImplementedError:
-                pass
-            else:
-                continue
         if raw:
             publish_display_data(data=obj, metadata=metadata)
         else:
             format_dict, md_dict = format(obj, include=include, exclude=exclude)
+            if not format_dict:
+                # nothing to display (e.g. _ipython_display_ took over)
+                continue
             if metadata:
                 # kwarg-specified metadata gets precedence
                 _merge(md_dict, metadata)
@@ -521,7 +503,29 @@ class SVG(DisplayObject):
         return self.data
 
 
-class JSON(TextDisplayObject):
+class JSON(DisplayObject):
+    """JSON expects a JSON-able dict or list
+    
+    not an already-serialized JSON string.
+    
+    Scalar types (None, number, string) are not allowed, only dict or list containers.
+    """
+    # wrap data in a property, which warns about passing already-serialized JSON
+    _data = None
+    def _check_data(self):
+        if self.data is not None and not isinstance(self.data, (dict, list)):
+            raise TypeError("%s expects JSONable dict or list, not %r" % (self.__class__.__name__, self.data))
+
+    @property
+    def data(self):
+        return self._data
+    
+    @data.setter
+    def data(self, data):
+        if isinstance(data, string_types):
+            warnings.warn("JSON expects JSONable dict or list, not JSON strings")
+            data = json.loads(data)
+        self._data = data
 
     def _repr_json_(self):
         return self.data
@@ -633,7 +637,9 @@ class Image(DisplayObject):
     _FMT_PNG = u'png'
     _ACCEPTABLE_EMBEDDINGS = [_FMT_JPEG, _FMT_PNG]
 
-    def __init__(self, data=None, url=None, filename=None, format=u'png', embed=None, width=None, height=None, retina=False):
+    def __init__(self, data=None, url=None, filename=None, format=None,
+                 embed=None, width=None, height=None, retina=False,
+                 unconfined=False, metadata=None):
         """Create a PNG/JPEG image object given raw data.
 
         When this object is returned by an input cell or passed to the
@@ -674,6 +680,10 @@ class Image(DisplayObject):
             from image data.
             For non-embedded images, you can just set the desired display width
             and height directly.
+        unconfined: bool
+            Set unconfined=True to disable max-width confinement of the image.
+        metadata: dict
+            Specify extra metadata to attach to the image.
 
         Examples
         --------
@@ -704,17 +714,27 @@ class Image(DisplayObject):
         else:
             ext = None
 
-        if ext is not None:
-            format = ext.lower()
-            if ext == u'jpg' or ext == u'jpeg':
-                format = self._FMT_JPEG
-            if ext == u'png':
-                format = self._FMT_PNG
-        elif isinstance(data, bytes) and format == 'png':
-            # infer image type from image data header,
-            # only if format might not have been specified.
-            if data[:2] == _JPEG:
-                format = 'jpeg'
+        if format is None:
+            if ext is not None:
+                if ext == u'jpg' or ext == u'jpeg':
+                    format = self._FMT_JPEG
+                if ext == u'png':
+                    format = self._FMT_PNG
+                else:
+                    format = ext.lower()
+            elif isinstance(data, bytes):
+                # infer image type from image data header,
+                # only if format has not been specified.
+                if data[:2] == _JPEG:
+                    format = self._FMT_JPEG
+
+        if format.lower() == 'jpg':
+            # jpg->jpeg
+            format = self._FMT_JPEG
+
+        # failed to detect format, default png
+        if format is None:
+            format = 'png'
 
         self.format = unicode_type(format).lower()
         self.embed = embed if embed is not None else (url is None)
@@ -724,6 +744,8 @@ class Image(DisplayObject):
         self.width = width
         self.height = height
         self.retina = retina
+        self.unconfined = unconfined
+        self.metadata = metadata
         super(Image, self).__init__(data=data, url=url, filename=filename)
         
         if retina:
@@ -752,12 +774,19 @@ class Image(DisplayObject):
 
     def _repr_html_(self):
         if not self.embed:
-            width = height = ''
+            width = height = klass = ''
             if self.width:
                 width = ' width="%d"' % self.width
             if self.height:
                 height = ' height="%d"' % self.height
-            return u'<img src="%s"%s%s/>' % (self.url, width, height)
+            if self.unconfined:
+                klass = ' class="unconfined"'
+            return u'<img src="{url}"{width}{height}{klass}/>'.format(
+                url=self.url,
+                width=width,
+                height=height,
+                klass=klass,
+            )
 
     def _data_and_metadata(self):
         """shortcut for returning metadata with shape information, if defined"""
@@ -766,6 +795,10 @@ class Image(DisplayObject):
             md['width'] = self.width
         if self.height:
             md['height'] = self.height
+        if self.unconfined:
+            md['unconfined'] = self.unconfined
+        if self.metadata:
+            md.update(self.metadata)
         if md:
             return self.data, md
         else:
@@ -907,9 +940,9 @@ def set_matplotlib_formats(*formats, **kwargs):
     """
     from IPython.core.interactiveshell import InteractiveShell
     from IPython.core.pylabtools import select_figure_formats
-    from IPython.kernel.zmq.pylab.config import InlineBackend
     # build kwargs, starting with InlineBackend config
     kw = {}
+    from ipykernel.pylab.config import InlineBackend
     cfg = InlineBackend.instance()
     kw.update(cfg.print_figure_kwargs)
     kw.update(**kwargs)
@@ -938,7 +971,7 @@ def set_matplotlib_close(close=True):
         Should all matplotlib figures be automatically closed after each cell is
         run?
     """
-    from IPython.kernel.zmq.pylab.config import InlineBackend
+    from ipykernel.pylab.config import InlineBackend
     cfg = InlineBackend.instance()
     cfg.close_figures = close
 

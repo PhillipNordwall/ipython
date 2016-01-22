@@ -6,12 +6,13 @@ Using IPython for interactive work
    :maxdepth: 2
 
    tutorial
-   tips
-   reference
    magics
+   plotting
+   reference
    shell
-   qtconsole
+   tips
 
 .. seealso::
 
-    :doc:`/notebook/index`
+    `A Qt Console for Jupyter <http://jupyter.org/qtconsole/>`__
+    `The Jupyter Notebook <http://jupyter-notebook.readthedocs.org/en/latest/>`__

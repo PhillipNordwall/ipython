@@ -24,7 +24,7 @@ r = requests.get(url)
 
 
 # Build a list of key, value pairs
-print('Building a list of (latex, unicode) key-vaule pairs...')
+print('Building a list of (latex, unicode) key-value pairs...')
 lines = r.text.splitlines()[60:]
 lines = [line for line in lines if '=>' in line]
 lines = [line.replace('=>',':') for line in lines]
@@ -75,6 +75,11 @@ latex_symbols = {\n
 for line in valid_idents:
     s += '    "%s" : "%s",\n' % (line[0], line[1])
 s += "}\n"
+
+s += """
+
+reverse_latex_symbol = { v:k for k,v in latex_symbols.items()}
+"""
 
 fn = os.path.join('..','IPython','core','latex_symbols.py')
 print("Writing the file: %s" % fn)

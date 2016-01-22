@@ -252,11 +252,25 @@ class YouTubeVideo(IFrame):
 
     Other parameters can be provided as documented at
     https://developers.google.com/youtube/player_parameters#parameter-subheader
+    
+    When converting the notebook using nbconvert, a jpeg representation of the video
+    will be inserted in the document.
     """
 
     def __init__(self, id, width=400, height=300, **kwargs):
+        self.id=id
         src = "https://www.youtube.com/embed/{0}".format(id)
         super(YouTubeVideo, self).__init__(src, width, height, **kwargs)
+    
+    def _repr_jpeg_(self):
+        try:
+            from urllib.request import urlopen  # Py3
+        except ImportError:
+            from urllib2 import urlopen
+        try:
+            return urlopen("https://img.youtube.com/vi/{id}/hqdefault.jpg".format(id=self.id)).read()
+        except IOError:
+            return None
 
 class VimeoVideo(IFrame):
     """
@@ -368,7 +382,8 @@ class FileLinks(FileLink):
                  result_html_prefix='',
                  result_html_suffix='<br>',
                  notebook_display_formatter=None,
-                 terminal_display_formatter=None):
+                 terminal_display_formatter=None,
+                 recursive=True):
         """
         See :class:`FileLink` for the ``path``, ``url_prefix``,
         ``result_html_prefix`` and ``result_html_suffix`` parameters.
@@ -396,6 +411,8 @@ class FileLinks(FileLink):
         included_suffixes : list
           The file suffixes that should be included in the output (passing None
           meansto include all suffixes in the output in the built-in formatters)
+        recursive : boolean
+          Whether to recurse into subdirectories. Default is True.
 
         The function should return a list of lines that will be printed in the
         notebook (if passing notebook_display_formatter) or the terminal (if
@@ -420,6 +437,8 @@ class FileLinks(FileLink):
              notebook_display_formatter or self._get_notebook_display_formatter()
         self.terminal_display_formatter = \
              terminal_display_formatter or self._get_terminal_display_formatter()
+
+        self.recursive = recursive
 
     def _get_display_formatter(self,
                                dirname_output_format,
@@ -516,7 +535,10 @@ class FileLinks(FileLink):
 
     def _format_path(self):
         result_lines = []
-        walked_dir = list(walk(self.path))
+        if self.recursive:
+            walked_dir = list(walk(self.path))
+        else:
+            walked_dir = [next(walk(self.path))]
         walked_dir.sort()
         for dirname, subdirs, fnames in walked_dir:
             result_lines += self.notebook_display_formatter(dirname, fnames, self.included_suffixes)
@@ -526,7 +548,10 @@ class FileLinks(FileLink):
         """return newline-separated absolute paths
         """
         result_lines = []
-        walked_dir = list(walk(self.path))
+        if self.recursive:
+            walked_dir = list(walk(self.path))
+        else:
+            walked_dir = [next(walk(self.path))]
         walked_dir.sort()
         for dirname, subdirs, fnames in walked_dir:
             result_lines += self.terminal_display_formatter(dirname, fnames, self.included_suffixes)
