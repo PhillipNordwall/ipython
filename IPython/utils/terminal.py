@@ -1,4 +1,3 @@
-# encoding: utf-8
 """
 Utilities for working with terminals.
 
@@ -8,31 +7,22 @@ Authors:
 * Fernando Perez
 * Alexander Belchenko (e-mail: bialix AT ukr.net)
 """
+from __future__ import annotations
 
-#-----------------------------------------------------------------------------
-#  Copyright (C) 2008-2011  The IPython Development Team
-#
-#  Distributed under the terms of the BSD License.  The full license is in
-#  the file COPYING, distributed as part of this software.
-#-----------------------------------------------------------------------------
-
-#-----------------------------------------------------------------------------
-# Imports
-#-----------------------------------------------------------------------------
+# Copyright (c) IPython Development Team.
+# Distributed under the terms of the Modified BSD License.
 
 import os
-import struct
+import re
 import sys
 import warnings
 
-from . import py3compat
-
-#-----------------------------------------------------------------------------
-# Code
-#-----------------------------------------------------------------------------
-
 # This variable is part of the expected API of the module:
 ignore_termtitle = True
+
+# C0/C1 controls and DEL. These terminate or abort the OSC string used to set
+# the title, leaving the rest of it to be read as a new terminal command.
+_title_controls_re = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 
@@ -48,7 +38,7 @@ else:
 
 
 
-def toggle_set_term_title(val):
+def toggle_set_term_title(val: bool):
     """Control whether set_term_title is active or not.
 
     set_term_title() allows writing to the console titlebar.  In embedded
@@ -59,7 +49,7 @@ def toggle_set_term_title(val):
 
     Parameters
     ----------
-      val : bool
+    val : bool
         If True, set_term_title() actually writes to the terminal (using the
         appropriate platform-specific module).  If False, it is a no-op.
     """
@@ -67,90 +57,74 @@ def toggle_set_term_title(val):
     ignore_termtitle = not(val)
 
 
-def _set_term_title(*args,**kw):
+def _set_term_title(title: str) -> None:
     """Dummy no-op."""
     pass
 
 
-def _set_term_title_xterm(title):
+def _restore_term_title():
+    pass
+
+
+_xterm_term_title_saved = False
+
+
+def _set_term_title_xterm(title: str) -> None:
     """ Change virtual terminal title in xterm-workalikes """
-    sys.stdout.write('\033]0;%s\007' % title)
+    global _xterm_term_title_saved
+    # Only save the title the first time we set, otherwise restore will only
+    # go back one title (probably undoing a %cd title change).
+    if not _xterm_term_title_saved:
+        # save the current title to the xterm "stack"
+        sys.stdout.write("\033[22;0t")
+        _xterm_term_title_saved = True
+    sys.stdout.write("\033]0;%s\007" % _title_controls_re.sub("", title))
+
+
+def _restore_term_title_xterm():
+    # Make sure the restore has at least one accompanying set.
+    global _xterm_term_title_saved
+    if not _xterm_term_title_saved:
+        warnings.warn(
+            "Expecting xterm_term_title_saved to be True, but is not; will not restore terminal title.",
+            stacklevel=1,
+        )
+        return
+
+    sys.stdout.write("\033[23;0t")
+    _xterm_term_title_saved = False
+
 
 if os.name == 'posix':
     TERM = os.environ.get('TERM','')
     if TERM.startswith('xterm'):
         _set_term_title = _set_term_title_xterm
+        _restore_term_title = _restore_term_title_xterm
 elif sys.platform == 'win32':
-    try:
-        import ctypes
+    import ctypes
 
-        SetConsoleTitleW = ctypes.windll.kernel32.SetConsoleTitleW
-        SetConsoleTitleW.argtypes = [ctypes.c_wchar_p]
-    
-        def _set_term_title(title):
-            """Set terminal title using ctypes to access the Win32 APIs."""
-            SetConsoleTitleW(title)
-    except ImportError:
-        def _set_term_title(title):
-            """Set terminal title using the 'title' command."""
-            global ignore_termtitle
+    SetConsoleTitleW = ctypes.windll.kernel32.SetConsoleTitleW
+    SetConsoleTitleW.argtypes = [ctypes.c_wchar_p]
 
-            try:
-                # Cannot be on network share when issuing system commands
-                curr = py3compat.getcwd()
-                os.chdir("C:")
-                ret = os.system("title " + title)
-            finally:
-                os.chdir(curr)
-            if ret:
-                # non-zero return code signals error, don't try again
-                ignore_termtitle = True
+    def _set_term_title(title: str) -> None:
+        """Set terminal title using ctypes to access the Win32 APIs."""
+        SetConsoleTitleW(title)
 
 
-def set_term_title(title):
+def set_term_title(title: str) -> None:
     """Set terminal title using the necessary platform-dependent calls."""
     if ignore_termtitle:
         return
     _set_term_title(title)
 
 
-def freeze_term_title():
-    warnings.warn("This function is deprecated, use toggle_set_term_title()")
-    global ignore_termtitle
-    ignore_termtitle = True
+def restore_term_title():
+    """Restore, if possible, terminal title to the original state"""
+    if ignore_termtitle:
+        return
+    _restore_term_title()
 
 
-if sys.platform == 'win32':
-    def get_terminal_size(defaultx=80, defaulty=25):
-        """Return size of current terminal console.
-
-        This function try to determine actual size of current working
-        console window and return tuple (sizex, sizey) if success,
-        or default size (defaultx, defaulty) otherwise.
-
-        Dependencies: ctypes should be installed.
-
-        Author: Alexander Belchenko (e-mail: bialix AT ukr.net)
-        """
-        try:
-            import ctypes
-        except ImportError:
-            return defaultx, defaulty
-
-        h = ctypes.windll.kernel32.GetStdHandle(-11)
-        csbi = ctypes.create_string_buffer(22)
-        res = ctypes.windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
-
-        if res:
-            (bufx, bufy, curx, cury, wattr,
-             left, top, right, bottom, maxx, maxy) = struct.unpack(
-                "hhhhHhhhhhh", csbi.raw)
-            sizex = right - left + 1
-            sizey = bottom - top + 1
-            return (sizex, sizey)
-        else:
-            return (defaultx, defaulty)
-else:
-    def get_terminal_size(defaultx=80, defaulty=25):
-        return defaultx, defaulty
-
+def get_terminal_size(defaultx: int = 80, defaulty: int = 25) -> tuple[int, int]:
+    from shutil import get_terminal_size as _get_terminal_size
+    return _get_terminal_size((defaultx, defaulty))

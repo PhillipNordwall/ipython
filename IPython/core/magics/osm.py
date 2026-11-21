@@ -3,29 +3,17 @@
 Note: this module is named 'osm' instead of 'os' to avoid a collision with the
 builtin.
 """
-from __future__ import print_function
-#-----------------------------------------------------------------------------
-#  Copyright (c) 2012 The IPython Development Team.
-#
-#  Distributed under the terms of the Modified BSD License.
-#
-#  The full license is in the file COPYING.txt, distributed with this software.
-#-----------------------------------------------------------------------------
+# Copyright (c) IPython Development Team.
+# Distributed under the terms of the Modified BSD License.
 
-#-----------------------------------------------------------------------------
-# Imports
-#-----------------------------------------------------------------------------
-
-# Stdlib
 import io
 import os
+import pathlib
 import re
 import sys
 from pprint import pformat
 
-# Our own packages
 from IPython.core import magic_arguments
-from IPython.core import oinspect
 from IPython.core import page
 from IPython.core.alias import AliasError, Alias
 from IPython.core.error import UsageError
@@ -34,19 +22,73 @@ from IPython.core.magic import  (
 )
 from IPython.testing.skipdoctest import skip_doctest
 from IPython.utils.openpy import source_to_unicode
-from IPython.utils.path import unquote_filename
 from IPython.utils.process import abbrev_cwd
-from IPython.utils import py3compat
-from IPython.utils.py3compat import unicode_type
 from IPython.utils.terminal import set_term_title
+from traitlets import Bool
+from warnings import warn
 
-#-----------------------------------------------------------------------------
-# Magic implementation classes
-#-----------------------------------------------------------------------------
+
 @magics_class
 class OSMagics(Magics):
     """Magics to interact with the underlying OS (shell-type functionality).
     """
+
+    cd_force_quiet = Bool(False,
+        help="Force %cd magic to be quiet even if -q is not passed."
+    ).tag(config=True)
+
+    def __init__(self, shell=None, **kwargs):
+
+        # Now define isexec in a cross platform manner.
+        self.is_posix = False
+        self.execre = None
+        if os.name == 'posix':
+            self.is_posix = True
+        else:
+            try:
+                winext = os.environ['pathext'].replace(';','|').replace('.','')
+            except KeyError:
+                winext = 'exe|com|bat|py'
+            try:
+                self.execre = re.compile(r'(.*)\.(%s)$' % winext,re.IGNORECASE)
+            except re.error:
+                warn("Seems like your pathext environmental "
+                     "variable is malformed. Please check it to "
+                     "enable a proper handle of file extensions "
+                     "managed for your system")
+                winext = 'exe|com|bat|py'
+                self.execre = re.compile(r'(.*)\.(%s)$' % winext,re.IGNORECASE)
+
+        # call up the chain
+        super().__init__(shell=shell, **kwargs)
+
+
+    def _isexec_POSIX(self, file):
+        """
+        Test for executable on a POSIX system
+        """
+        if os.access(file.path, os.X_OK):
+            # will fail on maxOS if access is not X_OK
+            return file.is_file()
+        return False
+
+
+
+    def _isexec_WIN(self, file):
+        """
+        Test for executable file on non POSIX system
+        """
+        return file.is_file() and self.execre.match(file.name) is not None
+
+    def isexec(self, file):
+        """
+        Test for executable file on non POSIX system
+        """
+        if self.is_posix:
+            return self._isexec_POSIX(file)
+        else:
+            return self._isexec_WIN(file)
+
 
     @skip_doctest
     @line_magic
@@ -85,7 +127,7 @@ class OSMagics(Magics):
         Aliases expand Python variables just like system calls using ! or !!
         do: all expressions prefixed with '$' get expanded.  For details of
         the semantic rules, see PEP-215:
-        http://www.python.org/peps/pep-0215.html.  This is the library used by
+        https://peps.python.org/pep-0215/.  This is the library used by
         IPython for variable expansion.  If you want to access a true shell
         variable, an extra $ is necessary to prevent its expansion by
         IPython::
@@ -97,11 +139,21 @@ class OSMagics(Magics):
           In [9]: show $$PATH
           /usr/local/lf9560/bin:/usr/local/intel/compiler70/ia32/bin:...
 
-        You can use the alias facility to acess all of $PATH.  See the %rehashx
+        You can use the alias facility to access all of $PATH.  See the %rehashx
         function, which automatically creates aliases for the contents of your
         $PATH.
 
-        If called with no parameters, %alias prints the current alias table."""
+        If called with no parameters, %alias prints the current alias table
+        for your system.  For posix systems, the default aliases are 'cat',
+        'cp', 'mv', 'rm', 'rmdir', and 'mkdir', and other platform-specific
+        aliases are added.  For windows-based systems, the default aliases are
+        'copy', 'ddir', 'echo', 'ls', 'ldir', 'mkdir', 'ren', and 'rmdir'.
+
+        You can see the definition of alias by adding a question mark in the
+        end::
+
+          In [1]: cat?
+          Repr: <alias cat for 'cat'>"""
 
         par = parameter_s.strip()
         if not par:
@@ -118,9 +170,11 @@ class OSMagics(Magics):
         try:
             alias,cmd = par.split(None, 1)
         except TypeError:
+            from IPython.core import oinspect
+
             print(oinspect.getdoc(self.alias))
             return
-        
+
         try:
             self.shell.alias_manager.define_alias(alias, cmd)
         except AliasError as e:
@@ -137,7 +191,7 @@ class OSMagics(Magics):
         except ValueError as e:
             print(e)
             return
-        
+
         stored = self.shell.db.get('stored_aliases', {} )
         if aname in stored:
             print("Removing %stored alias",aname)
@@ -167,65 +221,59 @@ class OSMagics(Magics):
             os.environ.get('PATH','').split(os.pathsep)]
 
         syscmdlist = []
-        # Now define isexec in a cross platform manner.
-        if os.name == 'posix':
-            isexec = lambda fname:os.path.isfile(fname) and \
-                     os.access(fname,os.X_OK)
-        else:
-            try:
-                winext = os.environ['pathext'].replace(';','|').replace('.','')
-            except KeyError:
-                winext = 'exe|com|bat|py'
-            if 'py' not in winext:
-                winext += '|py'
-            execre = re.compile(r'(.*)\.(%s)$' % winext,re.IGNORECASE)
-            isexec = lambda fname:os.path.isfile(fname) and execre.match(fname)
-        savedir = py3compat.getcwd()
+        savedir = os.getcwd()
 
         # Now walk the paths looking for executables to alias.
         try:
             # write the whole loop for posix/Windows so we don't have an if in
             # the innermost part
-            if os.name == 'posix':
+            if self.is_posix:
                 for pdir in path:
                     try:
                         os.chdir(pdir)
-                        dirlist = os.listdir(pdir)
                     except OSError:
                         continue
+
+                    # for python 3.6+ rewrite to: with os.scandir(pdir) as dirlist:
+                    dirlist = os.scandir(path=pdir)
                     for ff in dirlist:
-                        if isexec(ff):
+                        if self.isexec(ff):
+                            fname = ff.name
                             try:
                                 # Removes dots from the name since ipython
                                 # will assume names with dots to be python.
-                                if not self.shell.alias_manager.is_alias(ff):
+                                if not self.shell.alias_manager.is_alias(fname):
                                     self.shell.alias_manager.define_alias(
-                                        ff.replace('.',''), ff)
+                                        fname.replace('.',''), fname)
                             except InvalidAliasError:
                                 pass
                             else:
-                                syscmdlist.append(ff)
+                                syscmdlist.append(fname)
             else:
                 no_alias = Alias.blacklist
                 for pdir in path:
                     try:
                         os.chdir(pdir)
-                        dirlist = os.listdir(pdir)
                     except OSError:
                         continue
+
+                    # for python 3.6+ rewrite to: with os.scandir(pdir) as dirlist:
+                    dirlist = os.scandir(pdir)
                     for ff in dirlist:
-                        base, ext = os.path.splitext(ff)
-                        if isexec(ff) and base.lower() not in no_alias:
+                        fname = ff.name
+                        base, ext = os.path.splitext(fname)
+                        if self.isexec(ff) and base.lower() not in no_alias:
                             if ext.lower() == '.exe':
-                                ff = base
+                                fname = base
                                 try:
                                     # Removes dots from the name since ipython
                                     # will assume names with dots to be python.
                                     self.shell.alias_manager.define_alias(
-                                        base.lower().replace('.',''), ff)
+                                        base.lower().replace('.',''), fname)
                                 except InvalidAliasError:
                                     pass
-                                syscmdlist.append(ff)
+                                syscmdlist.append(fname)
+
             self.shell.db['syscmdlist'] = syscmdlist
         finally:
             os.chdir(savedir)
@@ -242,7 +290,10 @@ class OSMagics(Magics):
           In [9]: pwd
           Out[9]: '/home/tsuser/sprint/ipython'
         """
-        return py3compat.getcwd()
+        try:
+            return os.getcwd()
+        except FileNotFoundError as e:
+            raise UsageError("CWD no longer exists - please use %cd to change directory.") from e
 
     @skip_doctest
     @line_magic
@@ -250,33 +301,34 @@ class OSMagics(Magics):
         """Change the current working directory.
 
         This command automatically maintains an internal list of directories
-        you visit during your IPython session, in the variable _dh. The
-        command %dhist shows this history nicely formatted. You can also
-        do 'cd -<tab>' to see directory history conveniently.
-
+        you visit during your IPython session, in the variable ``_dh``. The
+        command :magic:`%dhist` shows this history nicely formatted. You can
+        also do ``cd -<tab>`` to see directory history conveniently.
         Usage:
 
-          cd 'dir': changes to directory 'dir'.
+          - ``cd 'dir'``: changes to directory 'dir'.
+          - ``cd -``: changes to the last visited directory.
+          - ``cd -<n>``: changes to the n-th directory in the directory history.
+          - ``cd --foo``: change to directory that matches 'foo' in history
+          - ``cd -b <bookmark_name>``: jump to a bookmark set by %bookmark
+          - Hitting a tab key after ``cd -b`` allows you to tab-complete
+            bookmark names.
 
-          cd -: changes to the last visited directory.
-
-          cd -<n>: changes to the n-th directory in the directory history.
-
-          cd --foo: change to directory that matches 'foo' in history
-
-          cd -b <bookmark_name>: jump to a bookmark set by %bookmark
-             (note: cd <bookmark_name> is enough if there is no
-              directory <bookmark_name>, but a bookmark with the name exists.)
-              'cd -b <tab>' allows you to tab-complete bookmark names.
+          .. note::
+            ``cd <bookmark_name>`` is enough if there is no directory
+            ``<bookmark_name>``, but a bookmark with the name exists.
 
         Options:
 
-        -q: quiet.  Do not print the working directory after the cd command is
-        executed.  By default IPython's cd command does print this directory,
-        since the default prompts do not display path information.
+        -q               Be quiet. Do not print the working directory after the
+                          cd command is executed. By default IPython's cd
+                          command does print this directory, since the default
+                          prompts do not display path information.
 
-        Note that !cd doesn't work for this purpose because the shell where
-        !command runs is immediately discarded after executing 'command'.
+        .. note::
+           Note that ``!cd`` doesn't work for this purpose because the shell
+           where ``!command`` runs is immediately discarded after executing
+           'command'.
 
         Examples
         --------
@@ -286,7 +338,12 @@ class OSMagics(Magics):
           /home/tsuser/parent/child
         """
 
-        oldcwd = py3compat.getcwd()
+        try:
+            oldcwd = os.getcwd()
+        except FileNotFoundError:
+            # Happens if the CWD has been deleted.
+            oldcwd = None
+
         numcd = re.match(r'(-)(\d+)$',parameter_s)
         # jump in directory history by number
         if numcd:
@@ -324,16 +381,13 @@ class OSMagics(Magics):
 
 
         else:
-            #turn all non-space-escaping backslashes to slashes,
-            # for c:\windows\directory\names\
-            parameter_s = re.sub(r'\\(?! )','/', parameter_s)
-            opts,ps = self.parse_options(parameter_s,'qb',mode='string')
+            opts, ps = self.parse_options(parameter_s, 'qb', mode='string')
         # jump to previous
         if ps == '-':
             try:
                 ps = self.shell.user_ns['_dh'][-2]
-            except IndexError:
-                raise UsageError('%cd -: No previous directory to change to.')
+            except IndexError as e:
+                raise UsageError('%cd -: No previous directory to change to.') from e
         # jump to bookmark if needed
         else:
             if not os.path.isdir(ps) or 'b' in opts:
@@ -341,25 +395,23 @@ class OSMagics(Magics):
 
                 if ps in bkms:
                     target = bkms[ps]
-                    print('(bookmark:%s) -> %s' % (ps, target))
+                    print('(bookmark:{}) -> {}'.format(ps, target))
                     ps = target
                 else:
                     if 'b' in opts:
                         raise UsageError("Bookmark '%s' not found.  "
                               "Use '%%bookmark -l' to see your bookmarks." % ps)
 
-        # strip extra quotes on Windows, because os.chdir doesn't like them
-        ps = unquote_filename(ps)
         # at this point ps should point to the target dir
         if ps:
             try:
                 os.chdir(os.path.expanduser(ps))
                 if hasattr(self.shell, 'term_title') and self.shell.term_title:
-                    set_term_title('IPython: ' + abbrev_cwd())
+                    set_term_title(self.shell.term_title_format.format(cwd=abbrev_cwd()))
             except OSError:
                 print(sys.exc_info()[1])
             else:
-                cwd = py3compat.getcwd()
+                cwd = pathlib.Path.cwd()
                 dhist = self.shell.user_ns['_dh']
                 if oldcwd != cwd:
                     dhist.append(cwd)
@@ -368,15 +420,15 @@ class OSMagics(Magics):
         else:
             os.chdir(self.shell.home_dir)
             if hasattr(self.shell, 'term_title') and self.shell.term_title:
-                set_term_title('IPython: ' + '~')
-            cwd = py3compat.getcwd()
+                set_term_title(self.shell.term_title_format.format(cwd="~"))
+            cwd = pathlib.Path.cwd()
             dhist = self.shell.user_ns['_dh']
 
             if oldcwd != cwd:
                 dhist.append(cwd)
-                self.shell.db['dhist'] = compress_dhist(dhist)[-100:]
-        if not 'q' in opts and self.shell.user_ns['_dh']:
-            print(self.shell.user_ns['_dh'][-1])
+                self.shell.db["dhist"] = compress_dhist(dhist)[-100:]
+        if "q" not in opts and not self.cd_force_quiet and self.shell.user_ns["_dh"]:
+            print(self.shell.user_ns["_dh"][-1])
 
     @line_magic
     def env(self, parameter_s=''):
@@ -384,11 +436,11 @@ class OSMagics(Magics):
 
         Usage:\\
 
-          %env: lists all environment variables/values
-          %env var: get value for var
-          %env var val: set value for var
-          %env var=val: set value for var
-          %env var=$val: set value for var, using python expansion if possible
+          :``%env``: lists all environment variables/values
+          :``%env var``: get value for var
+          :``%env var val``: set value for var
+          :``%env var=val``: set value for var
+          :``%env var=$val``: set value for var, using python expansion if possible
         """
         if parameter_s.strip():
             split = '=' if '=' in parameter_s else ' '
@@ -398,11 +450,17 @@ class OSMagics(Magics):
                 if key in os.environ:
                     return os.environ[key]
                 else:
-                    err = "Environment does not have key: {0}".format(key)
+                    err = f"Environment does not have key: {key}"
                     raise UsageError(err)
             if len(bits) > 1:
                 return self.set_env(parameter_s)
-        return dict(os.environ)
+        env = dict(os.environ)
+        # hide likely secrets when printing the whole environment
+        for key in list(env):
+            if any(s in key.lower() for s in ('key', 'token', 'secret')):
+                env[key] = '<hidden>'
+
+        return env
 
     @line_magic
     def set_env(self, parameter_s):
@@ -411,9 +469,9 @@ class OSMagics(Magics):
         string.
 
         Usage:\\
-          %set_env var val: set value for var
-          %set_env var=val: set value for var
-          %set_env var=$val: set value for var, using python expansion if possible
+          :``%set_env var val``: set value for var
+          :``%set_env var=val``: set value for var
+          :``%set_env var=$val``: set value for var, using python expansion if possible
         """
         split = '=' if '=' in parameter_s else ' '
         bits = parameter_s.split(split, 1)
@@ -431,8 +489,8 @@ class OSMagics(Magics):
             err = "refusing to set env var with whitespace: '{0}'"
             err = err.format(val)
             raise UsageError(err)
-        os.environ[py3compat.cast_bytes_py2(var)] = py3compat.cast_bytes_py2(val)
-        print('env: {0}={1}'.format(var,val))
+        os.environ[var] = val
+        print(f'env: {var}={val}')
 
     @line_magic
     def pushd(self, parameter_s=''):
@@ -443,12 +501,12 @@ class OSMagics(Magics):
         """
 
         dir_s = self.shell.dir_stack
-        tgt = os.path.expanduser(unquote_filename(parameter_s))
-        cwd = py3compat.getcwd().replace(self.shell.home_dir,'~')
+        tgt = os.path.expanduser(parameter_s)
+        cwd = os.getcwd().replace(self.shell.home_dir,'~')
         if tgt:
             self.cd(parameter_s)
         dir_s.insert(0,cwd)
-        return self.shell.magic('dirs')
+        return self.shell.run_line_magic('dirs', '')
 
     @line_magic
     def popd(self, parameter_s=''):
@@ -487,7 +545,7 @@ class OSMagics(Magics):
         if parameter_s:
             try:
                 args = map(int,parameter_s.split())
-            except:
+            except ValueError:
                 self.arg_err(self.dhist)
                 return
             if len(args) == 1:
@@ -572,8 +630,8 @@ class OSMagics(Magics):
 
             # while the list form is useful to loop over:
             In [6]: for f in a.l:
-              ...:      !wc -l $f
-              ...:
+               ...:      !wc -l $f
+               ...:
             146 setup.py
             130 win32_manual_post_install.py
 
@@ -614,7 +672,7 @@ class OSMagics(Magics):
         split = 'l' in opts
         out = self.shell.getoutput(cmd, split=split)
         if 'v' in opts:
-            print('%s ==\n%s' % (var, pformat(out)))
+            print('{} ==\n{}'.format(var, pformat(out)))
         if var:
             self.shell.user_ns.update({var:out})
         else:
@@ -661,7 +719,7 @@ class OSMagics(Magics):
 
         This is very useful when trying to use such lists as arguments to
         system commands."""
-        
+
         if cell is None:
             # line magic
             return self.shell.getoutput(line)
@@ -706,15 +764,15 @@ class OSMagics(Magics):
         if 'd' in opts:
             try:
                 todel = args[0]
-            except IndexError:
+            except IndexError as e:
                 raise UsageError(
-                    "%bookmark -d: must provide a bookmark to delete")
+                    "%bookmark -d: must provide a bookmark to delete") from e
             else:
                 try:
                     del bkms[todel]
-                except KeyError:
+                except KeyError as e:
                     raise UsageError(
-                        "%%bookmark -d: Can't delete bookmark '%s'" % todel)
+                        "%%bookmark -d: Can't delete bookmark '%s'" % todel) from e
 
         elif 'r' in opts:
             bkms = {}
@@ -732,7 +790,7 @@ class OSMagics(Magics):
             if not args:
                 raise UsageError("%bookmark: You must specify the bookmark name")
             elif len(args)==1:
-                bkms[args[0]] = py3compat.getcwd()
+                bkms[args[0]] = os.getcwd()
             elif len(args)==2:
                 bkms[args[0]] = args[1]
         self.shell.db['bookmarks'] = bkms
@@ -745,20 +803,19 @@ class OSMagics(Magics):
         to be Python source and will show it with syntax highlighting.
 
         This magic command can either take a local filename, an url,
-        an history range (see %history) or a macro as argument ::
+        an history range (see %history) or a macro as argument.
+
+        If no parameter is given, prints out history of current session up to
+        this point. ::
 
         %pycat myscript.py
         %pycat 7-27
         %pycat myMacro
         %pycat http://www.example.com/myscript.py
         """
-        if not parameter_s:
-            raise UsageError('Missing filename, URL, input history range, '
-                             'or macro.')
-
-        try :
+        try:
             cont = self.shell.find_user_code(parameter_s, skip_encoding_cookie=False)
-        except (ValueError, IOError):
+        except (ValueError, OSError):
             print("Error: no such file, variable, URL, history range or macro")
             return
 
@@ -771,18 +828,21 @@ class OSMagics(Magics):
              'The file will be created if it does not exist.'
     )
     @magic_arguments.argument(
-        'filename', type=unicode_type,
+        'filename', type=str,
         help='file to write'
     )
     @cell_magic
     def writefile(self, line, cell):
         """Write the contents of the cell to a file.
-        
+
         The file will be overwritten unless the -a (--append) flag is specified.
         """
         args = magic_arguments.parse_argstring(self.writefile, line)
-        filename = os.path.expanduser(unquote_filename(args.filename))
-        
+        if re.match(r'^(\'.*\')|(".*")$', args.filename):
+            filename = os.path.expanduser(args.filename[1:-1])
+        else:
+            filename = os.path.expanduser(args.filename)
+
         if os.path.exists(filename):
             if args.append:
                 print("Appending to %s" % filename)
@@ -790,7 +850,7 @@ class OSMagics(Magics):
                 print("Overwriting %s" % filename)
         else:
             print("Writing %s" % filename)
-        
+
         mode = 'a' if args.append else 'w'
-        with io.open(filename, mode, encoding='utf-8') as f:
+        with open(filename, mode, encoding='utf-8') as f:
             f.write(cell)

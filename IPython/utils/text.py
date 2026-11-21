@@ -1,4 +1,3 @@
-# encoding: utf-8
 """
 Utilities for working with strings and text.
 
@@ -7,22 +6,24 @@ Inheritance diagram:
 .. inheritance-diagram:: IPython.utils.text
    :parts: 3
 """
-from __future__ import absolute_import
+
+from __future__ import annotations
+
+import builtins
 
 import os
 import re
-import sys
+import string
 import textwrap
 from string import Formatter
+from pathlib import Path
 
-from IPython.testing.skipdoctest import skip_doctest_py3, skip_doctest
-from IPython.utils import py3compat
+from typing import (
+    Any,
+    Self,
+)
+from collections.abc import Sequence, Mapping, Callable, Iterator
 
-# datetime.strftime date format for ipython
-if sys.platform == 'win32':
-    date_format = "%B %d, %Y"
-else:
-    date_format = "%B %-d, %Y"
 
 class LSString(str):
     """String derivative with a special access attributes.
@@ -32,7 +33,7 @@ class LSString(str):
         .l (or .list) : value as list (split on newlines).
         .n (or .nlstr): original value (the string itself).
         .s (or .spstr): value as whitespace-separated string.
-        .p (or .paths): list of path objects (requires path.py package)
+        .p (or .paths): list of pathlib.Path objects (existing files only)
 
     Any values which require transformations are computed only once and
     cached.
@@ -40,7 +41,11 @@ class LSString(str):
     Such strings are very useful to efficiently interact with the shell, which
     typically only understands whitespace-separated options for commands."""
 
-    def get_list(self):
+    __list: list[str]
+    __spstr: str
+    __paths: list[Path]
+
+    def get_list(self) -> list[str]:
         try:
             return self.__list
         except AttributeError:
@@ -49,7 +54,7 @@ class LSString(str):
 
     l = list = property(get_list)
 
-    def get_spstr(self):
+    def get_spstr(self) -> str:
         try:
             return self.__spstr
         except AttributeError:
@@ -58,17 +63,16 @@ class LSString(str):
 
     s = spstr = property(get_spstr)
 
-    def get_nlstr(self):
+    def get_nlstr(self) -> Self:
         return self
 
     n = nlstr = property(get_nlstr)
 
-    def get_paths(self):
-        from path import path
+    def get_paths(self) -> builtins.list[Path]:
         try:
             return self.__paths
         except AttributeError:
-            self.__paths = [path(p) for p in self.split('\n') if os.path.exists(p)]
+            self.__paths = [Path(p) for p in self.split('\n') if os.path.exists(p)]
             return self.__paths
 
     p = paths = property(get_paths)
@@ -79,14 +83,14 @@ class LSString(str):
 
 # def print_lsstring(arg):
 #     """ Prettier (non-repr-like) and more informative printer for LSString """
-#     print "LSString (.p, .n, .l, .s available). Value:"
-#     print arg
+#     print("LSString (.p, .n, .l, .s available). Value:")
+#     print(arg)
 #
 #
-# print_lsstring = result_display.when_type(LSString)(print_lsstring)
+# print_lsstring = result_display.register(LSString)(print_lsstring)
 
 
-class SList(list):
+class SList(list[Any]):
     """List derivative with a special access attributes.
 
     These are normal lists, but with the special attributes:
@@ -94,17 +98,21 @@ class SList(list):
     * .l (or .list) : value as list (the list itself).
     * .n (or .nlstr): value as a string, joined on newlines.
     * .s (or .spstr): value as a string, joined on spaces.
-    * .p (or .paths): list of path objects (requires path.py package)
+    * .p (or .paths): list of pathlib.Path objects (existing files only)
 
     Any values which require transformations are computed only once and
     cached."""
 
-    def get_list(self):
+    __spstr: str
+    __nlstr: str
+    __paths: list[Path]
+
+    def get_list(self) -> Self:
         return self
 
     l = list = property(get_list)
 
-    def get_spstr(self):
+    def get_spstr(self) -> str:
         try:
             return self.__spstr
         except AttributeError:
@@ -113,7 +121,7 @@ class SList(list):
 
     s = spstr = property(get_spstr)
 
-    def get_nlstr(self):
+    def get_nlstr(self) -> str:
         try:
             return self.__nlstr
         except AttributeError:
@@ -122,18 +130,22 @@ class SList(list):
 
     n = nlstr = property(get_nlstr)
 
-    def get_paths(self):
-        from path import path
+    def get_paths(self) -> builtins.list[Path]:
         try:
             return self.__paths
         except AttributeError:
-            self.__paths = [path(p) for p in self if os.path.exists(p)]
+            self.__paths = [Path(p) for p in self if os.path.exists(p)]
             return self.__paths
 
     p = paths = property(get_paths)
 
-    def grep(self, pattern, prune = False, field = None):
-        """ Return all strings matching 'pattern' (a regex or callable)
+    def grep(
+        self,
+        pattern: str | Callable[[Any], re.Match[str] | None],
+        prune: bool = False,
+        field: int | None = None,
+    ) -> Self:
+        """Return all strings matching 'pattern' (a regex or callable)
 
         This is case-insensitive. If prune is true, return all items
         NOT matching the pattern.
@@ -148,7 +160,7 @@ class SList(list):
             a.grep('chm', field=-1)
         """
 
-        def match_target(s):
+        def match_target(s: str) -> str:
             if field is None:
                 return s
             parts = s.split()
@@ -158,17 +170,17 @@ class SList(list):
             except IndexError:
                 return ""
 
-        if isinstance(pattern, py3compat.string_types):
+        if isinstance(pattern, str):
             pred = lambda x : re.search(pattern, x, re.IGNORECASE)
         else:
             pred = pattern
         if not prune:
-            return SList([el for el in self if pred(match_target(el))])
+            return type(self)([el for el in self if pred(match_target(el))])  # type: ignore [no-untyped-call]
         else:
-            return SList([el for el in self if not pred(match_target(el))])
+            return type(self)([el for el in self if not pred(match_target(el))])  # type: ignore [no-untyped-call]
 
-    def fields(self, *fields):
-        """ Collect whitespace-separated fields from string list
+    def fields(self, *fields: builtins.list[str]) -> builtins.list[builtins.list[str]]:
+        """Collect whitespace-separated fields from string list
 
         Allows quick awk-like usage of string lists.
 
@@ -203,8 +215,12 @@ class SList(list):
 
         return res
 
-    def sort(self,field= None,  nums = False):
-        """ sort by specified fields (see fields())
+    def sort(  # type:ignore[override]
+        self,
+        field: builtins.list[str] | None = None,
+        nums: bool = False,
+    ) -> Self:
+        """sort by specified fields (see fields())
 
         Example::
 
@@ -230,34 +246,17 @@ class SList(list):
 
 
         dsu.sort()
-        return SList([t[1] for t in dsu])
+        return type(self)([t[1] for t in dsu])
 
 
-# FIXME: We need to reimplement type specific displayhook and then add this
-# back as a custom printer. This should also be moved outside utils into the
-# core.
-
-# def print_slist(arg):
-#     """ Prettier (non-repr-like) and more informative printer for SList """
-#     print "SList (.p, .n, .l, .s, .grep(), .fields(), sort() available):"
-#     if hasattr(arg,  'hideonce') and arg.hideonce:
-#         arg.hideonce = False
-#         return
-#
-#     nlprint(arg)   # This was a nested list printer, now removed.
-#
-# print_slist = result_display.when_type(SList)(print_slist)
-
-
-def indent(instr,nspaces=4, ntabs=0, flatten=False):
+def indent(instr: str, nspaces: int = 4, ntabs: int = 0, flatten: bool = False) -> str:
     """Indent a string a given number of spaces or tabstops.
 
-    indent(str,nspaces=4,ntabs=0) -> indent str by ntabs+nspaces.
+    indent(str, nspaces=4, ntabs=0) -> indent str by ntabs+nspaces.
 
     Parameters
     ----------
-
-    instr : basestring
+    instr : str
         The string to be indented.
     nspaces : int (default: 4)
         The number of spaces to be indented.
@@ -270,25 +269,22 @@ def indent(instr,nspaces=4, ntabs=0, flatten=False):
 
     Returns
     -------
-
-    str|unicode : string indented by ntabs and nspaces.
+    str : string indented by ntabs and nspaces.
 
     """
-    if instr is None:
-        return
-    ind = '\t'*ntabs+' '*nspaces
+    ind = "\t" * ntabs + " " * nspaces
     if flatten:
         pat = re.compile(r'^\s*', re.MULTILINE)
     else:
         pat = re.compile(r'^', re.MULTILINE)
     outstr = re.sub(pat, ind, instr)
-    if outstr.endswith(os.linesep+ind):
-        return outstr[:-len(ind)]
+    if ind and outstr.endswith(os.linesep + ind):
+        return outstr[: -len(ind)]
     else:
         return outstr
 
 
-def list_strings(arg):
+def list_strings(arg: str | list[str]) -> list[str]:
     """Always return a list of strings, given a string or list of strings
     as input.
 
@@ -306,11 +302,13 @@ def list_strings(arg):
         Out[9]: ['A', 'list', 'of', 'strings']
     """
 
-    if isinstance(arg, py3compat.string_types): return [arg]
-    else: return arg
+    if isinstance(arg, str):
+        return [arg]
+    else:
+        return arg
 
 
-def marquee(txt='',width=78,mark='*'):
+def marquee(txt: str = "", width: int = 78, mark: str = "*") -> str:
     """Return the input string centered in a 'marquee'.
 
     Examples
@@ -335,19 +333,7 @@ def marquee(txt='',width=78,mark='*'):
     return '%s %s %s' % (marks,txt,marks)
 
 
-ini_spaces_re = re.compile(r'^(\s+)')
-
-def num_ini_spaces(strng):
-    """Return the number of initial spaces in a string"""
-
-    ini_spaces = ini_spaces_re.match(strng)
-    if ini_spaces:
-        return ini_spaces.end()
-    else:
-        return 0
-
-
-def format_screen(strng):
+def format_screen(strng: str) -> str:
     """Format a string for screen printing.
 
     This removes some latex-type format codes."""
@@ -357,7 +343,7 @@ def format_screen(strng):
     return strng
 
 
-def dedent(text):
+def dedent(text: str) -> str:
     """Equivalent of textwrap.dedent that ignores unindented first line.
 
     This means it will still dedent strings like:
@@ -384,49 +370,7 @@ def dedent(text):
     return '\n'.join([first, rest])
 
 
-def wrap_paragraphs(text, ncols=80):
-    """Wrap multiple paragraphs to fit a specified width.
-
-    This is equivalent to textwrap.wrap, but with support for multiple
-    paragraphs, as separated by empty lines.
-
-    Returns
-    -------
-
-    list of complete paragraphs, wrapped to fill `ncols` columns.
-    """
-    paragraph_re = re.compile(r'\n(\s*\n)+', re.MULTILINE)
-    text = dedent(text).strip()
-    paragraphs = paragraph_re.split(text)[::2] # every other entry is space
-    out_ps = []
-    indent_re = re.compile(r'\n\s+', re.MULTILINE)
-    for p in paragraphs:
-        # presume indentation that survives dedent is meaningful formatting,
-        # so don't fill unless text is flush.
-        if indent_re.search(p) is None:
-            # wrap paragraph
-            p = textwrap.fill(p, ncols)
-        out_ps.append(p)
-    return out_ps
-
-
-def long_substr(data):
-    """Return the longest common substring in a list of strings.
-    
-    Credit: http://stackoverflow.com/questions/2892931/longest-common-substring-from-more-than-two-strings-python
-    """
-    substr = ''
-    if len(data) > 1 and len(data[0]) > 0:
-        for i in range(len(data[0])):
-            for j in range(len(data[0])-i+1):
-                if j > len(substr) and all(data[0][i:i+j] in x for x in data):
-                    substr = data[0][i:i+j]
-    elif len(data) == 1:
-        substr = data[0]
-    return substr
-
-
-def strip_email_quotes(text):
+def strip_email_quotes(text: str) -> str:
     """Strip leading email quotation characters ('>').
 
     Removes any combination of leading '>' interspersed with whitespace that
@@ -452,46 +396,41 @@ def strip_email_quotes(text):
         In [4]: strip_email_quotes('> > text\\n> > more\\n> more...')
         Out[4]: '> text\\n> more\\nmore...'
 
-    So if any line has no quote marks ('>') , then none are stripped from any
+    So if any line has no quote marks ('>'), then none are stripped from any
     of them ::
-    
+
         In [5]: strip_email_quotes('> > text\\n> > more\\nlast different')
         Out[5]: '> > text\\n> > more\\nlast different'
     """
     lines = text.splitlines()
-    matches = set()
-    for line in lines:
-        prefix = re.match(r'^(\s*>[ >]*)', line)
-        if prefix:
-            matches.add(prefix.group(1))
+    strip_len = 0
+
+    for characters in zip(*lines):
+        # Check if all characters in this position are the same
+        if len(set(characters)) > 1:
+            break
+        prefix_char = characters[0]
+
+        if prefix_char in string.whitespace or prefix_char == ">":
+            strip_len += 1
         else:
             break
-    else:
-        prefix = long_substr(list(matches))
-        if prefix:
-            strip = len(prefix)
-            text = '\n'.join([ ln[strip:] for ln in lines])
-    return text
 
-def strip_ansi(source):
-    """
-    Remove ansi escape codes from text.
-    
-    Parameters
-    ----------
-    source : str
-        Source to remove the ansi from
-    """
-    return re.sub(r'\033\[(\d|;)+?m', '', source)
+    text = "\n".join([ln[strip_len:] for ln in lines])
+    return text
 
 
 class EvalFormatter(Formatter):
     """A String Formatter that allows evaluation of simple expressions.
-    
-    Note that this version interprets a : as specifying a format string (as per
+
+    Note that this version interprets a `:`  as specifying a format string (as per
     standard string formatting), so if slicing is required, you must explicitly
     create a slice.
-    
+
+    Note that on Python 3.14+ this version interprets `[]` as indexing operator
+    so you need to use generators instead of list comprehensions, for example:
+    `list(i for i in range(10))`.
+
     This is to be used in templating cases, such as the parallel batch
     script templates, where simple arithmetic on arguments is useful.
 
@@ -506,45 +445,48 @@ class EvalFormatter(Formatter):
         In [3]: f.format("{greeting[slice(2,4)]}", greeting="Hello")
         Out[3]: 'll'
     """
-    def get_field(self, name, args, kwargs):
-        v = eval(name, kwargs)
+
+    def get_field(self, name: str, args: Any, kwargs: Any) -> tuple[Any, str]:
+        v = eval(name, kwargs, kwargs)
         return v, name
 
 #XXX: As of Python 3.4, the format string parsing no longer splits on a colon
 # inside [], so EvalFormatter can handle slicing. Once we only support 3.4 and
 # above, it should be possible to remove FullEvalFormatter.
 
-@skip_doctest_py3
 class FullEvalFormatter(Formatter):
     """A String Formatter that allows evaluation of simple expressions.
-    
+
     Any time a format key is not found in the kwargs,
     it will be tried as an expression in the kwargs namespace.
-    
+
     Note that this version allows slicing using [1:2], so you cannot specify
     a format string. Use :class:`EvalFormatter` to permit format strings.
-    
+
     Examples
     --------
     ::
 
         In [1]: f = FullEvalFormatter()
         In [2]: f.format('{n//4}', n=8)
-        Out[2]: u'2'
+        Out[2]: '2'
 
         In [3]: f.format('{list(range(5))[2:4]}')
-        Out[3]: u'[2, 3]'
+        Out[3]: '[2, 3]'
 
         In [4]: f.format('{3*2}')
-        Out[4]: u'6'
+        Out[4]: '6'
     """
     # copied from Formatter._vformat with minor changes to allow eval
     # and replace the format_spec code with slicing
-    def vformat(self, format_string, args, kwargs):
+    def vformat(
+        self, format_string: str, args: Sequence[Any], kwargs: Mapping[str, Any]
+    ) -> str:
         result = []
-        for literal_text, field_name, format_spec, conversion in \
-                self.parse(format_string):
-
+        conversion: str | None
+        for literal_text, field_name, format_spec, conversion in self.parse(
+            format_string
+        ):
             # output the literal text
             if literal_text:
                 result.append(literal_text)
@@ -560,18 +502,18 @@ class FullEvalFormatter(Formatter):
 
                 # eval the contents of the field for the object
                 # to be formatted
-                obj = eval(field_name, kwargs)
+                obj = eval(field_name, dict(kwargs))
 
                 # do any conversion on the resulting object
+                # type issue in typeshed, fined in https://github.com/python/typeshed/pull/11377
                 obj = self.convert_field(obj, conversion)
 
                 # format the object and append to the result
                 result.append(self.format_field(obj, ''))
 
-        return u''.join(py3compat.cast_unicode(s) for s in result)
+        return ''.join(result)
 
 
-@skip_doctest_py3
 class DollarFormatter(FullEvalFormatter):
     """Formatter allowing Itpl style $foo replacement, for names and attribute
     access only. Standard {foo} replacement also works, and allows full
@@ -583,23 +525,27 @@ class DollarFormatter(FullEvalFormatter):
 
         In [1]: f = DollarFormatter()
         In [2]: f.format('{n//4}', n=8)
-        Out[2]: u'2'
+        Out[2]: '2'
 
         In [3]: f.format('23 * 76 is $result', result=23*76)
-        Out[3]: u'23 * 76 is 1748'
+        Out[3]: '23 * 76 is 1748'
 
         In [4]: f.format('$a or {b}', a=1, b=2)
-        Out[4]: u'1 or 2'
+        Out[4]: '1 or 2'
     """
-    _dollar_pattern = re.compile("(.*?)\$(\$?[\w\.]+)")
-    def parse(self, fmt_string):
-        for literal_txt, field_name, format_spec, conversion \
-                    in Formatter.parse(self, fmt_string):
-            
+
+    _dollar_pattern_ignore_single_quote = re.compile(
+        r"(.*?)\$(\$?[\w\.]+)(?=([^']*'[^']*')*[^']*$)"
+    )
+
+    def parse(self, fmt_string: str) -> Iterator[tuple[Any, Any, Any, Any]]:
+        for literal_txt, field_name, format_spec, conversion in Formatter.parse(
+            self, fmt_string
+        ):
             # Find $foo patterns in the literal text.
             continue_from = 0
             txt = ""
-            for m in self._dollar_pattern.finditer(literal_txt):
+            for m in self._dollar_pattern_ignore_single_quote.finditer(literal_txt):
                 new_txt, new_field = m.group(1,2)
                 # $$foo --> $foo
                 if new_field.startswith("$"):
@@ -608,146 +554,17 @@ class DollarFormatter(FullEvalFormatter):
                     yield (txt + new_txt, new_field, "", None)
                     txt = ""
                 continue_from = m.end()
-            
+
             # Re-yield the {foo} style pattern
             yield (txt + literal_txt[continue_from:], field_name, format_spec, conversion)
 
-#-----------------------------------------------------------------------------
-# Utils to columnize a list of string
-#-----------------------------------------------------------------------------
-
-def _col_chunks(l, max_rows, row_first=False):
-    """Yield successive max_rows-sized column chunks from l."""
-    if row_first:
-        ncols = (len(l) // max_rows) + (len(l) % max_rows > 0)
-        for i in py3compat.xrange(ncols):
-            yield [l[j] for j in py3compat.xrange(i, len(l), ncols)]
-    else:
-        for i in py3compat.xrange(0, len(l), max_rows):
-            yield l[i:(i + max_rows)]
+    def __repr__(self) -> str:
+        return "<DollarFormatter>"
 
 
-def _find_optimal(rlist, row_first=False, separator_size=2, displaywidth=80):
-    """Calculate optimal info to columnize a list of string"""
-    for max_rows in range(1, len(rlist) + 1):
-        col_widths = list(map(max, _col_chunks(rlist, max_rows, row_first)))
-        sumlength = sum(col_widths)
-        ncols = len(col_widths)
-        if sumlength + separator_size * (ncols - 1) <= displaywidth:
-            break
-    return {'num_columns': ncols,
-            'optimal_separator_width': (displaywidth - sumlength) / (ncols - 1) if (ncols - 1) else 0,
-            'max_rows': max_rows,
-            'column_widths': col_widths
-            }
-
-
-def _get_or_default(mylist, i, default=None):
-    """return list item number, or default if don't exist"""
-    if i >= len(mylist):
-        return default
-    else :
-        return mylist[i]
-
-
-def compute_item_matrix(items, row_first=False, empty=None, *args, **kwargs) :
-    """Returns a nested list, and info to columnize items
-
-    Parameters
-    ----------
-
-    items
-        list of strings to columize
-    row_first : (default False)
-        Whether to compute columns for a row-first matrix instead of
-        column-first (default).
-    empty : (default None)
-        default value to fill list if needed
-    separator_size : int (default=2)
-        How much caracters will be used as a separation between each columns.
-    displaywidth : int (default=80)
-        The width of the area onto wich the columns should enter
-
-    Returns
-    -------
-
-    strings_matrix
-
-        nested list of string, the outer most list contains as many list as
-        rows, the innermost lists have each as many element as colums. If the
-        total number of elements in `items` does not equal the product of
-        rows*columns, the last element of some lists are filled with `None`.
-
-    dict_info
-        some info to make columnize easier:
-
-        num_columns
-          number of columns
-        max_rows
-          maximum number of rows (final number may be less)
-        column_widths
-          list of with of each columns
-        optimal_separator_width
-          best separator width between columns
-
-    Examples
-    --------
-    ::
-
-        In [1]: l = ['aaa','b','cc','d','eeeee','f','g','h','i','j','k','l']
-           ...: compute_item_matrix(l, displaywidth=12)
-        Out[1]:
-            ([['aaa', 'f', 'k'],
-            ['b', 'g', 'l'],
-            ['cc', 'h', None],
-            ['d', 'i', None],
-            ['eeeee', 'j', None]],
-            {'num_columns': 3,
-            'column_widths': [5, 1, 1],
-            'optimal_separator_width': 2,
-            'max_rows': 5})
-    """
-    info = _find_optimal(list(map(len, items)), row_first, *args, **kwargs)
-    nrow, ncol = info['max_rows'], info['num_columns']
-    if row_first:
-        return ([[_get_or_default(items, r * ncol + c, default=empty) for c in range(ncol)] for r in range(nrow)], info)
-    else:
-        return ([[_get_or_default(items, c * nrow + r, default=empty) for c in range(ncol)] for r in range(nrow)], info)
-
-
-def columnize(items, row_first=False, separator='  ', displaywidth=80, spread=False):
-    """ Transform a list of strings into a single string with columns.
-
-    Parameters
-    ----------
-    items : sequence of strings
-        The strings to process.
-
-    row_first : (default False)
-        Whether to compute columns for a row-first matrix instead of
-        column-first (default).
-
-    separator : str, optional [default is two spaces]
-        The string that separates columns.
-
-    displaywidth : int, optional [default is 80]
-        Width of the display in number of characters.
-
-    Returns
-    -------
-    The formatted string.
-    """
-    if not items:
-        return '\n'
-    matrix, info = compute_item_matrix(items, row_first=row_first, separator_size=len(separator), displaywidth=displaywidth)
-    if spread:
-        separator = separator.ljust(int(info['optimal_separator_width']))
-    fmatrix = [filter(None, x) for x in matrix]
-    sjoin = lambda x : separator.join([ y.ljust(w, ' ') for y, w in zip(x, info['column_widths'])])
-    return '\n'.join(map(sjoin, fmatrix))+'\n'
-
-
-def get_text_list(list_, last_sep=' and ', sep=", ", wrap_item_with=""):
+def get_text_list(
+    list_: list[str], last_sep: str = " and ", sep: str = ", ", wrap_item_with: str = ""
+) -> str:
     """
     Return a string with a natural enumeration of items
 

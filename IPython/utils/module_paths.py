@@ -2,16 +2,9 @@
 
 Utility functions for finding modules on sys.path.
 
-`find_mod` finds named module on sys.path.
-
-`get_init` helper function that finds __init__ file in a directory.
-
-`find_module` variant of imp.find_module in std_lib that only returns
-path to module and not an open file object as well.
-
-
-
 """
+from __future__ import annotations
+
 #-----------------------------------------------------------------------------
 # Copyright (c) 2011, the IPython Development Team.
 #
@@ -23,11 +16,12 @@ path to module and not an open file object as well.
 #-----------------------------------------------------------------------------
 # Imports
 #-----------------------------------------------------------------------------
-from __future__ import print_function
 
 # Stdlib imports
-import imp
-import os
+import importlib
+import importlib.abc
+import importlib.util
+import sys
 
 # Third-party imports
 
@@ -45,81 +39,41 @@ import os
 #-----------------------------------------------------------------------------
 # Classes and functions
 #-----------------------------------------------------------------------------
-def find_module(name, path=None):
-    """imp.find_module variant that only return path of module.
-    
-    The `imp.find_module` returns a filehandle that we are not interested in.
-    Also we ignore any bytecode files that `imp.find_module` finds.
 
-    Parameters
-    ----------
-    name : str
-        name of module to locate
-    path : list of str
-        list of paths to search for `name`. If path=None then search sys.path
-
-    Returns
-    -------
-    filename : str
-        Return full path of module or None if module is missing or does not have
-        .py or .pyw extension
+def find_mod(module_name: str) -> str | None | importlib.abc.Loader:
     """
-    if name is None:
-        return None
-    try:
-        file, filename, _ = imp.find_module(name, path)
-    except ImportError:
-        return None
-    if file is None:
-        return filename
-    else:
-        file.close()
-    if os.path.splitext(filename)[1] in [".py", ".pyc"]:
-        return filename
-    else:
-        return None
+    Find module `module_name` on sys.path, and return the path to module `module_name`.
 
-def get_init(dirname):
-    """Get __init__ file path for module directory
-    
-    Parameters
-    ----------
-    dirname : str
-        Find the __init__ file in directory `dirname`
+    * If `module_name` refers to a module directory, then return path to `__init__` file.
+        * If `module_name` is a directory without an __init__file, return None.
 
-    Returns
-    -------
-    init_path : str
-        Path to __init__ file
-    """
-    fbase =  os.path.join(dirname, "__init__")
-    for ext in [".py", ".pyw"]:
-        fname = fbase + ext
-        if os.path.isfile(fname):
-            return fname
+    * If module is missing or does not have a `.py` or `.pyw` extension, return None.
+        * Note that we are not interested in running bytecode.
 
+    * Otherwise, return the fill path of the module.
 
-def find_mod(module_name):
-    """Find module `module_name` on sys.path
-    
-    Return the path to module `module_name`. If `module_name` refers to
-    a module directory then return path to __init__ file. Return full 
-    path of module or None if module is missing or does not have .py or .pyw
-    extension. We are not interested in running bytecode.
-    
     Parameters
     ----------
     module_name : str
-    
+
     Returns
     -------
-    modulepath : str
-        Path to module `module_name`.
+    module_path : str
+        Path to module `module_name`, its __init__.py, or None,
+        depending on above conditions.
     """
-    parts = module_name.split(".")
-    basepath = find_module(parts[0])
-    for submodname in parts[1:]:
-        basepath = find_module(submodname, [basepath])
-    if basepath and os.path.isdir(basepath):
-        basepath = get_init(basepath)
-    return basepath
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        return None
+    module_path = spec.origin
+    if module_path is None:
+        # built-in/frozen modules use their own meta_path finder as loader
+        if spec.loader is not None and spec.loader in sys.meta_path:  # type: ignore[comparison-overlap]
+            return spec.loader  # type: ignore[unreachable]
+        return None
+    else:
+        split_path = module_path.split(".")
+        if split_path[-1] in ["py", "pyw"]:
+            return module_path
+        else:
+            return None

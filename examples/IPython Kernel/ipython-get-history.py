@@ -16,22 +16,26 @@ This script is a simple demonstration of HistoryAccessor. It should be possible
 to build much more flexible and powerful tools to browse and pull from the
 history database.
 """
+
 import sys
+from pathlib import Path
 
 from IPython.core.history import HistoryAccessor
 
 session_number = int(sys.argv[1])
 if len(sys.argv) > 2:
-    dest = open(sys.argv[2], "w")
-    raw = not sys.argv[2].endswith('.py')
+    filepath = Path(sys.argv[2])
+    dest = open(filepath, "w", encoding="utf-8")
+    raw = not filepath.name.endswith(".py")
 else:
     dest = sys.stdout
     raw = True
-dest.write("# coding: utf-8\n")
 
-# Profiles other than 'default' can be specified here with a profile= argument:
-hist = HistoryAccessor()
+with dest:
+    dest.write("# coding: utf-8\n")
 
-for session, lineno, cell in hist.get_range(session=session_number, raw=raw):
-    cell = cell.encode('utf-8')  # This line is only needed on Python 2.
-    dest.write(cell + '\n')
+    # Profiles other than 'default' can be specified here with a profile= argument:
+    hist = HistoryAccessor()
+
+    for session, lineno, cell in hist.get_range(session=session_number, raw=raw):
+        dest.write(cell + "\n")

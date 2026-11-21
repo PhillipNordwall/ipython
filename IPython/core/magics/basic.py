@@ -1,26 +1,35 @@
 """Implementation of basic magic functions."""
+from __future__ import annotations
 
-from __future__ import print_function
 
+from logging import error
 import io
-import sys
+import os
+import platform
 from pprint import pformat
+import sys
+from warnings import warn
 
+from traitlets.utils.importstring import import_item
 from IPython.core import magic_arguments, page
 from IPython.core.error import UsageError
-from IPython.core.magic import Magics, magics_class, line_magic, magic_escapes
+from IPython.core.magic import (
+    LazyMagic,
+    Magics,
+    magics_class,
+    line_magic,
+    magic_escapes,
+)
 from IPython.utils.text import format_screen, dedent, indent
 from IPython.testing.skipdoctest import skip_doctest
 from IPython.utils.ipstruct import Struct
-from IPython.utils.path import unquote_filename
-from IPython.utils.py3compat import unicode_type
-from IPython.utils.warn import warn, error
 
 
-class MagicsDisplay(object):
-    def __init__(self, magics_manager):
+class MagicsDisplay:
+    def __init__(self, magics_manager, ignore=None):
+        self.ignore = ignore if ignore else []
         self.magics_manager = magics_manager
-    
+
     def _lsmagic(self):
         """The main implementation of the %lsmagic"""
         mesc = magic_escapes['line']
@@ -28,23 +37,26 @@ class MagicsDisplay(object):
         mman = self.magics_manager
         magics = mman.lsmagic()
         out = ['Available line magics:',
-               mesc + ('  '+mesc).join(sorted(magics['line'])),
+               mesc + ('  '+mesc).join(sorted([m for m,v in magics['line'].items() if (v not in self.ignore)])),
                '',
                'Available cell magics:',
-               cesc + ('  '+cesc).join(sorted(magics['cell'])),
+               cesc + ('  '+cesc).join(sorted([m for m,v in magics['cell'].items() if (v not in self.ignore)])),
                '',
                mman.auto_status()]
         return '\n'.join(out)
 
     def _repr_pretty_(self, p, cycle):
         p.text(self._lsmagic())
-    
+
+    def __repr__(self):
+        return self.__str__()
+
     def __str__(self):
         return self._lsmagic()
-    
+
     def _jsonable(self):
         """turn magics dict into jsonable dict of the same structure
-        
+
         replaces object instances with their class names as strings
         """
         magic_dict = {}
@@ -54,14 +66,18 @@ class MagicsDisplay(object):
             d = {}
             magic_dict[key] = d
             for name, obj in subdict.items():
-                try:
-                    classname = obj.__self__.__class__.__name__
-                except AttributeError:
-                    classname = 'Other'
-                
+                if isinstance(obj, LazyMagic):
+                    # Not imported yet; the spec already names the class.
+                    classname = obj.spec.rpartition(":")[2] or "Other"
+                else:
+                    try:
+                        classname = obj.__self__.__class__.__name__
+                    except AttributeError:
+                        classname = "Other"
+
                 d[name] = classname
         return magic_dict
-        
+
     def _repr_json_(self):
         return self._jsonable()
 
@@ -73,6 +89,7 @@ class BasicMagics(Magics):
     These are various magics that don't fit into specific categories but that
     are all part of the base 'IPython experience'."""
 
+    @skip_doctest
     @magic_arguments.magic_arguments()
     @magic_arguments.argument(
         '-l', '--line', action='store_true',
@@ -90,6 +107,10 @@ class BasicMagics(Magics):
         'target',
         help="""Name of the existing line or cell magic."""
     )
+    @magic_arguments.argument(
+        '-p', '--params', default=None,
+        help="""Parameters passed to the magic function."""
+    )
     @line_magic
     def alias_magic(self, line=''):
         """Create an alias for an existing line or cell magic.
@@ -103,12 +124,12 @@ class BasicMagics(Magics):
           Created `%%t` as an alias for `%%timeit`.
 
           In [2]: %t -n1 pass
-          1 loops, best of 3: 954 ns per loop
+          107 ns ± 43.6 ns per loop (mean ± std. dev. of 7 runs, 1 loop each)
 
           In [3]: %%t -n1
              ...: pass
              ...:
-          1 loops, best of 3: 954 ns per loop
+          107 ns ± 58.3 ns per loop (mean ± std. dev. of 7 runs, 1 loop each)
 
           In [4]: %alias_magic --cell whereami pwd
           UsageError: Cell magic function `%%pwd` not found.
@@ -116,8 +137,12 @@ class BasicMagics(Magics):
           Created `%whereami` as an alias for `%pwd`.
 
           In [6]: %whereami
-          Out[6]: u'/home/testuser'
+          Out[6]: '/home/testuser'
+
+          In [7]: %alias_magic h history -p "-l 30" --line
+          Created `%h` as an alias for `%history -l 30`.
         """
+
         args = magic_arguments.parse_argstring(self.alias_magic, line)
         shell = self.shell
         mman = self.shell.magics_manager
@@ -125,6 +150,12 @@ class BasicMagics(Magics):
 
         target = args.target.lstrip(escs)
         name = args.name.lstrip(escs)
+
+        params = args.params
+        if (params and
+                ((params.startswith('"') and params.endswith('"'))
+                or (params.startswith("'") and params.endswith("'")))):
+            params = params[1:-1]
 
         # Find the requested magics.
         m_line = shell.find_magic(target, 'line')
@@ -146,22 +177,35 @@ class BasicMagics(Magics):
             args.line = bool(m_line)
             args.cell = bool(m_cell)
 
+        params_str = "" if params is None else " " + params
+
         if args.line:
-            mman.register_alias(name, target, 'line')
-            print('Created `%s%s` as an alias for `%s%s`.' % (
+            mman.register_alias(name, target, 'line', params)
+            print('Created `{}{}` as an alias for `{}{}{}`.'.format(
                 magic_escapes['line'], name,
-                magic_escapes['line'], target))
+                magic_escapes['line'], target, params_str))
 
         if args.cell:
-            mman.register_alias(name, target, 'cell')
-            print('Created `%s%s` as an alias for `%s%s`.' % (
+            mman.register_alias(name, target, 'cell', params)
+            print('Created `{}{}` as an alias for `{}{}{}`.'.format(
                 magic_escapes['cell'], name,
-                magic_escapes['cell'], target))
+                magic_escapes['cell'], target, params_str))
 
+    @magic_arguments.magic_arguments()
+    @magic_arguments.argument(
+        "-j", "--json", action="store_true", help="Return the magic list as JSON."
+    )
     @line_magic
     def lsmagic(self, parameter_s=''):
-        """List currently available magic functions."""
-        return MagicsDisplay(self.shell.magics_manager)
+        """List currently available magic functions.
+
+        Use ``--json`` to return a JSON-compatible dictionary instead of text.
+        """
+        args = magic_arguments.parse_argstring(self.lsmagic, parameter_s)
+        display = MagicsDisplay(self.shell.magics_manager, ignore=[])
+        if args.json:
+            return display._jsonable()
+        return str(display)
 
     def _magic_docs(self, brief=False, rest=False):
         """Return docstrings from magic functions."""
@@ -278,27 +322,14 @@ Currently the magic system has the following functions:""",
 
         oname = args and args or '_'
         info = self.shell._ofind(oname)
-        if info['found']:
-            txt = (raw and str or pformat)( info['obj'] )
+        if info.found:
+            if raw:
+                txt = str(info.obj)
+            else:
+                txt = pformat(info.obj)
             page.page(txt)
         else:
             print('Object `%s` not found' % oname)
-
-    @line_magic
-    def profile(self, parameter_s=''):
-        """Print your currently active IPython profile.
-
-        See Also
-        --------
-        prun : run code using the Python profiler
-               (:meth:`~IPython.core.magics.execution.ExecutionMagics.prun`)
-        """
-        warn("%profile is now deprecated. Please use get_ipython().profile instead.")
-        from IPython.core.application import BaseIPythonApplication
-        if BaseIPythonApplication.initialized():
-            print(BaseIPythonApplication.instance().profile)
-        else:
-            error("profile is an application-level value, but you don't appear to be in an IPython application")
 
     @line_magic
     def pprint(self, parameter_s=''):
@@ -310,11 +341,7 @@ Currently the magic system has the following functions:""",
 
     @line_magic
     def colors(self, parameter_s=''):
-        """Switch color scheme for prompts, info system and exception handlers.
-
-        Currently implemented schemes: NoColor, Linux, LightBG.
-
-        Color scheme names are not case-sensitive.
+        """Switch color scheme/theme globally for IPython
 
         Examples
         --------
@@ -322,84 +349,65 @@ Currently the magic system has the following functions:""",
 
           %colors nocolor
         """
-        def color_switch_err(name):
-            warn('Error changing %s color schemes.\n%s' %
-                 (name, sys.exc_info()[1]))
 
 
-        new_scheme = parameter_s.strip()
-        if not new_scheme:
+        new_theme = parameter_s.strip()
+        if not new_theme:
+            from IPython.utils.PyColorize import theme_table
+
             raise UsageError(
-                "%colors: you must specify a color scheme. See '%colors?'")
-        # local shortcut
-        shell = self.shell
+                "%colors: you must specify a color theme. See '%colors?'."
+                f" Available themes: {list(theme_table.keys())}"
+            )
 
-
-
-        if not shell.colors_force:
-            if sys.platform in {'win32', 'cli'}:
-                import IPython.utils.rlineimpl as readline
-                if not readline.have_readline:
-                    msg = """\
-Proper color support under MS Windows requires the pyreadline library.
-You can find it at:
-http://ipython.org/pyreadline.html
-
-Defaulting color scheme to 'NoColor'"""
-                    new_scheme = 'NoColor'
-                    warn(msg)
-
-            elif not shell.has_readline:
-                # Coloured prompts get messed up without readline
-                # Will remove this check after switching to prompt_toolkit
-                new_scheme = 'NoColor'
-
-        # Set prompt colors
-        try:
-            shell.prompt_manager.color_scheme = new_scheme
-        except:
-            color_switch_err('prompt')
-        else:
-            shell.colors = \
-                   shell.prompt_manager.color_scheme_table.active_scheme_name
-        # Set exception colors
-        try:
-            shell.InteractiveTB.set_colors(scheme = new_scheme)
-            shell.SyntaxTB.set_colors(scheme = new_scheme)
-        except:
-            color_switch_err('exception')
-
-        # Set info (for 'object?') colors
-        if shell.color_info:
-            try:
-                shell.inspector.set_active_scheme(new_scheme)
-            except:
-                color_switch_err('object inspector')
-        else:
-            shell.inspector.set_active_scheme('NoColor')
+        self.shell.colors = new_theme
 
     @line_magic
     def xmode(self, parameter_s=''):
         """Switch modes for the exception handlers.
 
-        Valid modes: Plain, Context and Verbose.
+        Valid modes: Plain, Context, Verbose, Minimal, Docs, and Doctest.
 
-        If called without arguments, acts as a toggle."""
+        - ``Plain``: similar to Python's default traceback.
+        - ``Context``: shows several lines of surrounding context for each
+          frame in the traceback.
+        - ``Verbose``: like Context, but also displays local variable values
+          in each frame.
+        - ``Minimal``: shows only the exception type and message, without
+          a traceback.
+        - ``Docs``: a stripped-down version of Verbose, designed for use
+          when running doctests.
+        - ``Doctest``: shows only the traceback header, an ellipsis, and the
+          exception line, for easy copy-paste into Python doctests.
+
+        If called without arguments, cycles through the available modes.
+
+        When in verbose mode the value ``--show`` (and ``--hide``)
+        will respectively show (or hide) frames with ``__tracebackhide__ =
+        True`` value set.
+        """
 
         def xmode_switch_err(name):
             warn('Error changing %s exception modes.\n%s' %
                  (name,sys.exc_info()[1]))
 
         shell = self.shell
+        if parameter_s.strip() == "--show":
+            shell.InteractiveTB.skip_hidden = False
+            return
+        if parameter_s.strip() == "--hide":
+            shell.InteractiveTB.skip_hidden = True
+            return
+
         new_mode = parameter_s.strip().capitalize()
         try:
             shell.InteractiveTB.set_mode(mode=new_mode)
             print('Exception reporting mode:',shell.InteractiveTB.mode)
-        except:
+        except Exception:
             xmode_switch_err('user')
 
     @line_magic
-    def quickref(self,arg):
+    def quickref(self, arg):
         """ Show a quick reference sheet """
         from IPython.core.usage import quick_reference
         qr = quick_reference + self._magic_docs(brief=True)
@@ -433,7 +441,6 @@ Defaulting color scheme to 'NoColor'"""
 
         # Shorthands
         shell = self.shell
-        pm = shell.prompt_manager
         meta = shell.meta
         disp_formatter = self.shell.display_formatter
         ptformatter = disp_formatter.formatters['text/plain']
@@ -448,46 +455,40 @@ Defaulting color scheme to 'NoColor'"""
         save_dstore('xmode',shell.InteractiveTB.mode)
         save_dstore('rc_separate_out',shell.separate_out)
         save_dstore('rc_separate_out2',shell.separate_out2)
-        save_dstore('rc_prompts_pad_left',pm.justify)
         save_dstore('rc_separate_in',shell.separate_in)
         save_dstore('rc_active_types',disp_formatter.active_types)
-        save_dstore('prompt_templates',(pm.in_template, pm.in2_template, pm.out_template))
 
         if not mode:
             # turn on
-            pm.in_template = '>>> '
-            pm.in2_template = '... '
-            pm.out_template = ''
 
             # Prompt separators like plain python
             shell.separate_in = ''
             shell.separate_out = ''
             shell.separate_out2 = ''
 
-            pm.justify = False
 
             ptformatter.pprint = False
             disp_formatter.active_types = ['text/plain']
 
-            shell.magic('xmode Plain')
+            shell.run_line_magic("xmode", "Plain")
         else:
             # turn off
-            pm.in_template, pm.in2_template, pm.out_template = dstore.prompt_templates
-
             shell.separate_in = dstore.rc_separate_in
 
             shell.separate_out = dstore.rc_separate_out
             shell.separate_out2 = dstore.rc_separate_out2
 
-            pm.justify = dstore.rc_prompts_pad_left
-
             ptformatter.pprint = dstore.rc_pprint
             disp_formatter.active_types = dstore.rc_active_types
 
-            shell.magic('xmode ' + dstore.xmode)
+            shell.run_line_magic("xmode", dstore.xmode)
+
+        # mode here is the state before we switch; switch_doctest_mode takes
+        # the mode we're switching to.
+        shell.switch_doctest_mode(not mode)
 
         # Store new mode and inform
-        dstore.mode = bool(1-int(mode))
+        dstore.mode = bool(not mode)
         mode_label = ['OFF','ON'][dstore.mode]
         print('Doctest mode is:', mode_label)
 
@@ -504,10 +505,13 @@ Defaulting color scheme to 'NoColor'"""
         are supported:  wxPython, PyQt4, PyGTK, Tk and Cocoa (OSX)::
 
             %gui wx      # enable wxPython event loop integration
-            %gui qt4|qt  # enable PyQt4 event loop integration
-            %gui qt5     # enable PyQt5 event loop integration
+            %gui qt      # enable PyQt/PySide event loop integration
+                         # with the latest version available.
+            %gui qt6     # enable PyQt6/PySide6 event loop integration
+            %gui qt5     # enable PyQt5/PySide2 event loop integration
             %gui gtk     # enable PyGTK event loop integration
             %gui gtk3    # enable Gtk3 event loop integration
+            %gui gtk4    # enable Gtk4 event loop integration
             %gui tk      # enable Tk event loop integration
             %gui osx     # enable Cocoa event loop integration
                          # (requires %matplotlib 1.1)
@@ -545,25 +549,25 @@ Defaulting color scheme to 'NoColor'"""
             In [1]: from math import pi
 
             In [2]: %precision 3
-            Out[2]: u'%.3f'
+            Out[2]: '%.3f'
 
             In [3]: pi
             Out[3]: 3.142
 
             In [4]: %precision %i
-            Out[4]: u'%i'
+            Out[4]: '%i'
 
             In [5]: pi
             Out[5]: 3
 
             In [6]: %precision %e
-            Out[6]: u'%e'
+            Out[6]: '%e'
 
             In [7]: pi**10
             Out[7]: 9.364805e+04
 
             In [8]: %precision
-            Out[8]: u'%r'
+            Out[8]: '%r'
 
             In [9]: pi**10
             Out[9]: 93648.047476082982
@@ -574,15 +578,7 @@ Defaulting color scheme to 'NoColor'"""
 
     @magic_arguments.magic_arguments()
     @magic_arguments.argument(
-        '-e', '--export', action='store_true', default=False,
-        help='Export IPython history as a notebook. The filename argument '
-             'is used to specify the notebook name and format. For example '
-             'a filename of notebook.ipynb will result in a notebook name '
-             'of "notebook" and a format of "json". Likewise using a ".py" '
-             'file extension will write the notebook as a Python script'
-    )
-    @magic_arguments.argument(
-        'filename', type=unicode_type,
+        'filename', type=str,
         help='Notebook name or filename'
     )
     @line_magic
@@ -590,23 +586,196 @@ Defaulting color scheme to 'NoColor'"""
         """Export and convert IPython notebooks.
 
         This function can export the current IPython history to a notebook file.
-        For example, to export the history to "foo.ipynb" do "%notebook -e foo.ipynb".
-        To export the history to "foo.py" do "%notebook -e foo.py".
+        For example, to export the history to "foo.ipynb" do "%notebook foo.ipynb".
         """
         args = magic_arguments.parse_argstring(self.notebook, s)
+        outfname = os.path.expanduser(args.filename)
 
         from nbformat import write, v4
-        args.filename = unquote_filename(args.filename)
-        if args.export:
-            cells = []
-            hist = list(self.shell.history_manager.get_range())
-            if(len(hist)<=1):
-                raise ValueError('History is empty, cannot export')
-            for session, execution_count, source in hist[:-1]:
-                cells.append(v4.new_code_cell(
-                    execution_count=execution_count,
-                    source=source
-                ))
-            nb = v4.new_notebook(cells=cells)
-            with io.open(args.filename, 'w', encoding='utf-8') as f:
-                write(nb, f, version=4)
+        from nbformat.sign import NotebookNotary
+
+        cells = []
+        hist = list(self.shell.history_manager.get_range())
+        outputs = self.shell.history_manager.outputs
+        exceptions = self.shell.history_manager.exceptions
+
+        if(len(hist)<=1):
+            raise ValueError('History is empty, cannot export')
+
+        for session, execution_count, source in hist[:-1]:
+            cell = v4.new_code_cell(execution_count=execution_count, source=source)
+
+            for output in outputs[execution_count]:
+                if output.output_type in {"out_stream", "err_stream"}:
+                    text_data = []
+                    for mime_type, data in output.bundle.items():
+                        if isinstance(data, list):
+                            text_data.extend(data)
+                        else:
+                            text_data.append(data)
+                    full_text = "".join(text_data)
+                    # Replace literal \n with actual newlines
+                    full_text = full_text.replace("\\n", "\n")
+                    normalized_text = []
+                    lines = full_text.split("\n")
+                    for i, line in enumerate(lines):
+                        if i < len(lines) - 1:
+                            normalized_text.append(line + "\n")
+                        elif line:  # Last line only if it's not empty
+                            normalized_text.append(line + "\n")
+                    stream_output = v4.new_output("stream", text=normalized_text)
+                    if output.output_type == "err_stream":
+                        stream_output.name = "stderr"
+                    cell.outputs.append(stream_output)
+
+                elif output.output_type == "execute_result":
+                    data_dict = {}
+                    for mime_type, data in output.bundle.items():
+                        data_dict[mime_type] = data
+                    cell.outputs.append(
+                        v4.new_output(
+                            "execute_result",
+                            data=data_dict,
+                            execution_count=execution_count,
+                        )
+                    )
+
+                elif output.output_type == "display_data":
+                    # Collect all MIME types for this display_data into a single output
+                    data_dict = {}
+                    for mime_type, data in output.bundle.items():
+                        data_dict[mime_type] = data
+                    cell.outputs.append(
+                        v4.new_output(
+                            "display_data",
+                            data=data_dict,
+                        )
+                    )
+                else:
+                    raise ValueError(f"Unknown output type: {output.output_type}")
+
+            # Check if this execution_count is in exceptions (current session)
+            if execution_count in exceptions:
+                cell.outputs.append(
+                    v4.new_output("error", **exceptions[execution_count])
+                )
+            cells.append(cell)
+
+        kernel_language_info = self._get_kernel_language_info()
+
+        nb = v4.new_notebook(
+            cells=cells,
+            metadata={
+                "kernelspec": {
+                    "display_name": "Python 3 (ipykernel)",
+                    "language": "python",
+                    "name": "python3",
+                },
+                "language_info": kernel_language_info
+                or {
+                    "codemirror_mode": {
+                        "name": "ipython",
+                        "version": sys.version_info[0],
+                    },
+                    "file_extension": ".py",
+                    "mimetype": "text/x-python",
+                    "name": "python",
+                    "nbconvert_exporter": "python",
+                    "pygments_lexer": "ipython3",
+                    "version": platform.python_version(),
+                },
+            },
+        )
+        # Sign the notebook to make it trusted
+        notary = NotebookNotary()
+        notary.update_config(self.shell.config)
+        try:
+            notary.sign(nb)
+        finally:
+            # Close the signature store's SQLite connection. NotebookNotary
+            # opens it eagerly but never closes it on its own, so leaving it
+            # open lets the connection be garbage collected unclosed, raising a
+            # spurious "ResourceWarning: unclosed database" in whatever code
+            # happens to be running at collection time (a source of flaky test
+            # failures, notably on the Windows / Python 3.14 CI job).
+            notary.store.close()
+        with open(outfname, "w", encoding="utf-8") as f:
+            write(nb, f, version=4)
+
+    def _get_kernel_language_info(self) -> dict | None:
+        """Get language info from kernel, useful when used in Jupyter Console where kernels exist."""
+        if not hasattr(self.shell, "kernel"):
+            return
+        if not hasattr(self.shell.kernel, "language_info"):
+            return
+        if not isinstance(self.shell.kernel.language_info, dict):
+            return
+        return self.shell.kernel.language_info
+
+@magics_class
+class AsyncMagics(BasicMagics):
+
+    @line_magic
+    def autoawait(self, parameter_s):
+        """
+        Allow to change the status of the autoawait option.
+
+        This allow you to set a specific asynchronous code runner.
+
+        If no value is passed, print the currently used asynchronous integration
+        and whether it is activated.
+
+        It can take a number of value evaluated in the following order:
+
+        - False/false/off deactivate autoawait integration
+        - True/true/on activate autoawait integration using configured default
+          loop
+        - asyncio/curio/trio activate autoawait integration and use integration
+          with said library.
+
+        - `sync` turn on the pseudo-sync integration (mostly used for
+          `IPython.embed()` which does not run IPython with a real eventloop and
+          deactivate running asynchronous code. Turning on Asynchronous code with
+          the pseudo sync loop is undefined behavior and may lead IPython to crash.
+
+        If the passed parameter does not match any of the above and is a python
+        identifier, get said object from user namespace and set it as the
+        runner, and activate autoawait.
+
+        If the object is a fully qualified object name, attempt to import it and
+        set it as the runner, and activate autoawait.
+
+        The exact behavior of autoawait is experimental and subject to change
+        across version of IPython and Python.
+        """
+
+        param = parameter_s.strip()
+        d = {True: "on", False: "off"}
+
+        if not param:
+            print("IPython autoawait is `{}`, and set to use `{}`".format(
+                d[self.shell.autoawait],
+                self.shell.loop_runner
+            ))
+            return None
+
+        if param.lower() in ('false', 'off'):
+            self.shell.autoawait = False
+            return None
+        if param.lower() in ('true', 'on'):
+            self.shell.autoawait = True
+            return None
+
+        if param in self.shell.loop_runner_map:
+            self.shell.loop_runner, self.shell.autoawait = self.shell.loop_runner_map[param]
+            return None
+
+        if param in self.shell.user_ns :
+            self.shell.loop_runner = self.shell.user_ns[param]
+            self.shell.autoawait = True
+            return None
+
+        runner = import_item(param)
+
+        self.shell.loop_runner = runner
+        self.shell.autoawait = True

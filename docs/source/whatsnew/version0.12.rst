@@ -8,8 +8,6 @@ Release 0.12.1
 IPython 0.12.1 is a bugfix release of 0.12, pulling only bugfixes and minor
 cleanup from 0.13, timed for the Ubuntu 12.04 LTS release.
 
-See the :ref:`list of fixed issues <issues_list_012>` for specific backported issues.
-
 
 Release 0.12
 ============
@@ -87,18 +85,17 @@ You can see all the relevant options with::
 
 and just like the Qt console, you can start the notebook server with pylab
 support by using::
-  
+
   ipython notebook --pylab
 
 for floating matplotlib windows or::
-  
+
   ipython notebook --pylab inline
 
 for plotting support with automatically inlined figures.  Note that it is now
 possible also to activate pylab support at runtime via ``%pylab``, so you do
 not need to make this decision when starting the server.
-  
-See :ref:`the Notebook docs <htmlnotebook>` for technical details.
+
 
 .. _two_process_console:
 
@@ -118,7 +115,7 @@ have embedded an IPython kernel.
 This is also something that we have wanted for a long time, and which is a
 culmination (as a team effort) of the work started last year during the 2010
 Google Summer of Code project.
-  
+
 Tabbed QtConsole
 ~~~~~~~~~~~~~~~~
 
@@ -168,13 +165,13 @@ the area where PyPy still lags most behind.  But for everyday interactive use
 at the terminal, with this release and PyPy 1.7, things seem to work quite well
 from our admittedly limited testing.
 
-  
+
 Other important new features
 ----------------------------
 
 * **SSH Tunnels**: In 0.11, the :mod:`IPython.parallel` Client could tunnel its
-  connections to the Controller via ssh. Now, the QtConsole :ref:`supports
-  <ssh_tunnels>` ssh tunneling, as do parallel engines.
+  connections to the Controller via ssh. Now, the QtConsole supports ssh tunneling,
+  as do parallel engines.
 
 * **relaxed command-line parsing**: 0.11 was released with overly-strict
   command-line parsing, preventing the ability to specify arguments with spaces,
@@ -209,7 +206,7 @@ Other important new features
 Major Bugs fixed
 ----------------
 
-In this cycle, we have :ref:`closed over 500 issues <issues_list_012>`, but a
+In this cycle, we have closed over 500 issues, but a
 few major ones merit special mention:
 
 * Simple configuration errors should no longer crash IPython. In 0.11, errors
@@ -288,13 +285,13 @@ Backwards incompatible changes
 
   The full path will still work, and is necessary for using custom launchers
   not in IPython's launcher module.
-  
+
   Further, MPIExec launcher names are now prefixed with just MPI, to better match
   other batch launchers, and be generally more intuitive.  The MPIExec names are
   deprecated, but continue to work.
 
 * For embedding a shell, note that the parameters ``user_global_ns`` and
-  ``global_ns`` have been deprectated in favour of ``user_module`` and
+  ``global_ns`` have been deprecated in favour of ``user_module`` and
   ``module`` respsectively.  The new parameters expect a module-like object,
   rather than a namespace dict.  The old parameters remain for backwards
   compatibility, although ``user_global_ns`` is now ignored. The ``user_ns``
@@ -308,8 +305,7 @@ Development summary and credits
 
 The previous version (IPython 0.11) was released on July 31 2011, so this
 release cycle was roughly 4 1/2 months long, we closed a total of 515 issues,
-257 pull requests and 258 regular issues (a :ref:`detailed list
-<issues_list_012>` is available).
+257 pull requests and 258 regular issues.
 
 Many users and developers contributed code, features, bug reports and ideas to
 this release.  Please do not hesitate in contacting us if we've failed to
@@ -362,7 +358,7 @@ had commits from the following 45 contributors, a mix of new and regular names
 * Timo Paulssen <timonator-at-perpetuum-immobile.de>
 * Valentin Haenel <valentin.haenel-at-gmx.de>
 * Yaroslav Halchenko <debian-at-onerussian.com>
-   
+
 .. note::
 
     This list was generated with the output of

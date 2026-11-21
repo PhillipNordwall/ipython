@@ -1,4 +1,3 @@
-# encoding: utf-8
 """Implementations for various useful completers.
 
 These are all loaded by default by IPython.
@@ -14,7 +13,6 @@ These are all loaded by default by IPython.
 #-----------------------------------------------------------------------------
 # Imports
 #-----------------------------------------------------------------------------
-from __future__ import print_function
 
 # Stdlib imports
 import glob
@@ -22,31 +20,26 @@ import inspect
 import os
 import re
 import sys
+from importlib import import_module
+from importlib.machinery import all_suffixes
 
-try:
-    # Python >= 3.3
-    from importlib.machinery import all_suffixes
-    _suffixes = all_suffixes()
-except ImportError:
-    from imp import get_suffixes
-    _suffixes = [ s[0] for s in get_suffixes() ]
 
 # Third-party imports
 from time import time
 from zipimport import zipimporter
 
 # Our own imports
-from IPython.core.completer import expand_user, compress_user
-from IPython.core.error import TryNext
-from IPython.utils._process_common import arg_split
-from IPython.utils.py3compat import string_types
+from .completer import expand_user, compress_user
+from .error import TryNext
+from ..utils._process_common import arg_split
 
 # FIXME: this should be pulled in with the right call via the component system
-from IPython import get_ipython
+from IPython.core.getipython import get_ipython
 
 #-----------------------------------------------------------------------------
 # Globals and constants
 #-----------------------------------------------------------------------------
+_suffixes = all_suffixes()
 
 # Time in seconds after which the rootmodules will be stored permanently in the
 # ipython ip.db database (kept in the user's .ipython dir).
@@ -56,7 +49,7 @@ TIMEOUT_STORAGE = 2
 TIMEOUT_GIVEUP = 20
 
 # Regular expression for the python import statement
-import_re = re.compile(r'(?P<name>[a-zA-Z_][a-zA-Z0-9_]*?)'
+import_re = re.compile(r'(?P<name>[^\W\d]\w*?)'
                        r'(?P<package>[/\\]__init__)?'
                        r'(?P<suffix>%s)$' %
                        r'|'.join(re.escape(s) for s in _suffixes))
@@ -68,7 +61,8 @@ magic_run_re = re.compile(r'.*(\.ipy|\.ipynb|\.py[w]?)$')
 # Local utilities
 #-----------------------------------------------------------------------------
 
-def module_list(path):
+
+def module_list(path: str) -> list[str]:
     """
     Return the list containing the names of the modules available in the given
     folder.
@@ -84,7 +78,7 @@ def module_list(path):
         # Build a list of all files in the directory and all files
         # in its subdirectories. For performance reasons, do not
         # recurse more than one level into subdirectories.
-        files = []
+        files: list[str] = []
         for root, dirs, nondirs in os.walk(path, followlinks=True):
             subdir = root[len(path)+1:]
             if subdir:
@@ -95,8 +89,8 @@ def module_list(path):
 
     else:
         try:
-            files = list(zipimporter(path)._files.keys())
-        except:
+            files = list(zipimporter(path)._files.keys())  # type: ignore
+        except Exception:
             files = []
 
     # Build a list of modules which match the import_re regex.
@@ -116,7 +110,15 @@ def get_root_modules():
     ip.db['rootmodules_cache'] maps sys.path entries to list of modules.
     """
     ip = get_ipython()
-    rootmodules_cache = ip.db.get('rootmodules_cache', {})
+    if ip is None:
+        # No global shell instance to store cached list of modules.
+        # Don't try to scan for modules every time.
+        return list(sys.builtin_module_names)
+
+    if getattr(ip.db, "_mock", False):
+        rootmodules_cache = {}
+    else:
+        rootmodules_cache = ip.db.get("rootmodules_cache", {})
     rootmodules = list(sys.builtin_module_names)
     start_time = time()
     store = False
@@ -147,36 +149,60 @@ def get_root_modules():
     return rootmodules
 
 
-def is_importable(module, attr, only_modules):
+def is_importable(module, attr: str, only_modules) -> bool:
     if only_modules:
-        return inspect.ismodule(getattr(module, attr))
+        try:
+            mod = getattr(module, attr)
+        except ModuleNotFoundError:
+            # See gh-14434
+            return False
+        return inspect.ismodule(mod)
     else:
         return not(attr[:2] == '__' and attr[-2:] == '__')
 
-
-def try_import(mod, only_modules=False):
+def is_possible_submodule(module, attr):
     try:
-        m = __import__(mod)
-    except:
-        return []
-    mods = mod.split('.')
-    for module in mods[1:]:
-        m = getattr(m, module)
+        obj = getattr(module, attr)
+    except AttributeError:
+        # Is possibly an unimported submodule
+        return True
+    except TypeError:
+        # https://github.com/ipython/ipython/issues/9678
+        return False
+    return inspect.ismodule(obj)
 
-    m_is_init = hasattr(m, '__file__') and '__init__' in m.__file__
+
+def try_import(mod: str, only_modules=False) -> list[str]:
+    """
+    Try to import given module and return list of potential completions.
+    """
+    mod = mod.rstrip('.')
+    try:
+        m = import_module(mod)
+    except ImportError:
+        return []
+
+    m_is_init = '__init__' in (getattr(m, '__file__', '') or '')
 
     completions = []
     if (not hasattr(m, '__file__')) or (not only_modules) or m_is_init:
         completions.extend( [attr for attr in dir(m) if
                              is_importable(m, attr, only_modules)])
 
-    completions.extend(getattr(m, '__all__', []))
+    m_all = getattr(m, "__all__", [])
+    if only_modules:
+        completions.extend(attr for attr in m_all if is_possible_submodule(m, attr))
+    else:
+        completions.extend(m_all)
+
     if m_is_init:
-        completions.extend(module_list(os.path.dirname(m.__file__)))
-    completions = set(completions)
-    if '__init__' in completions:
-        completions.remove('__init__')
-    return list(completions)
+        file_ = m.__file__
+        file_path = os.path.dirname(file_)  # type: ignore
+        if file_path is not None:
+            completions.extend(module_list(file_path))
+    completions_set = {c for c in completions if isinstance(c, str)}
+    completions_set.discard('__init__')
+    return list(completions_set)
 
 
 #-----------------------------------------------------------------------------
@@ -184,7 +210,7 @@ def try_import(mod, only_modules=False):
 #-----------------------------------------------------------------------------
 
 def quick_completer(cmd, completions):
-    """ Easily create a trivial completer for a command.
+    r""" Easily create a trivial completer for a command.
 
     Takes either a list of completions, or all completions in string (that will
     be split on whitespace).
@@ -198,7 +224,7 @@ def quick_completer(cmd, completions):
         [d:\ipython]|3> foo ba
     """
 
-    if isinstance(completions, string_types):
+    if isinstance(completions, str):
         completions = completions.split()
 
     def do_complete(self, event):

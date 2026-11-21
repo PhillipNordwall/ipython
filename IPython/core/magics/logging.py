@@ -18,8 +18,8 @@ import sys
 
 # Our own packages
 from IPython.core.magic import Magics, magics_class, line_magic
-from IPython.utils.warn import warn
-from IPython.utils.py3compat import str_to_unicode
+from warnings import warn
+from traitlets import Bool
 
 #-----------------------------------------------------------------------------
 # Magic implementation classes
@@ -29,11 +29,17 @@ from IPython.utils.py3compat import str_to_unicode
 class LoggingMagics(Magics):
     """Magics related to all logging machinery."""
 
+    quiet = Bool(False, help=
+        """
+        Suppress output of log state when logging is enabled
+        """
+    ).tag(config=True)
+
     @line_magic
     def logstart(self, parameter_s=''):
         """Start logging anywhere in a session.
 
-        %logstart [-o|-r|-t] [log_name [log_mode]]
+        %logstart [-o|-r|-t|-q] [log_name [log_mode]]
 
         If no name is given, it defaults to a file named 'ipython_log.py' in your
         current directory, in 'rotate' mode (see below).
@@ -77,18 +83,22 @@ class LoggingMagics(Magics):
             log 'raw' input.  Normally, IPython's logs contain the processed
             input, so that user lines are logged in their final form, converted
             into valid Python.  For example, %Exit is logged as
-            _ip.magic("Exit").  If the -r flag is given, all input is logged
+            _ip.run_line_magic("Exit").  If the -r flag is given, all input is logged
             exactly as typed, with no transformations applied.
 
           -t
             put timestamps before each input line logged (these are put in
             comments).
+
+          -q
+            suppress output of logstate message when logging is invoked
         """
 
-        opts,par = self.parse_options(parameter_s,'ort')
+        opts,par = self.parse_options(parameter_s,'ortq')
         log_output = 'o' in opts
         log_raw_input = 'r' in opts
         timestamp = 't' in opts
+        quiet = 'q' in opts
 
         logger = self.shell.logger
 
@@ -97,7 +107,7 @@ class LoggingMagics(Magics):
         if par:
             try:
                 logfname,logmode = par.split()
-            except:
+            except ValueError:
                 logfname = par
                 logmode = 'backup'
         else:
@@ -111,11 +121,11 @@ class LoggingMagics(Magics):
             logfname = os.path.expanduser(logfname)
         self.shell.logfile = logfname
 
-        loghead = u'# IPython log file\n\n'
+        loghead = '# IPython log file\n\n'
         try:
             logger.logstart(logfname, loghead, logmode, log_output, timestamp,
                             log_raw_input)
-        except:
+        except Exception:
             self.shell.logfile = old_logfile
             warn("Couldn't start log: %s" % sys.exc_info()[1])
         else:
@@ -136,19 +146,20 @@ class LoggingMagics(Magics):
                 log_write = logger.log_write
                 output_hist = self.shell.history_manager.output_hist
                 for n in range(1,len(input_hist)-1):
-                    log_write(input_hist[n].rstrip() + u'\n')
+                    log_write(input_hist[n].rstrip() + '\n')
                     if n in output_hist:
-                        log_write(str_to_unicode(repr(output_hist[n])),'output')
+                        log_write(repr(output_hist[n]),'output')
             else:
-                logger.log_write(u'\n'.join(input_hist[1:]))
-                logger.log_write(u'\n')
+                logger.log_write('\n'.join(input_hist[1:]))
+                logger.log_write('\n')
             if timestamp:
                 # re-enable timestamping
                 logger.timestamp = True
 
-            print ('Activating auto-logging. '
-                   'Current session state plus future input saved.')
-            logger.logstate()
+            if not (self.quiet or quiet):
+                print ('Activating auto-logging. '
+                       'Current session state plus future input saved.')
+                logger.logstate()
 
     @line_magic
     def logstop(self, parameter_s=''):

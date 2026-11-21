@@ -1,43 +1,75 @@
-# -*- coding: utf-8 -*-
 """Pylab (matplotlib) support utilities."""
-from __future__ import print_function
 
 # Copyright (c) IPython Development Team.
 # Distributed under the terms of the Modified BSD License.
 
 from io import BytesIO
+from binascii import b2a_base64
+from functools import partial
 
 from IPython.core.display import _pngxy
 from IPython.utils.decorators import flag_calls
-from IPython.utils import py3compat
 
-# If user specifies a GUI, that dictates the backend, otherwise we read the
-# user's mpl default from the mpl rc structure
-backends = {'tk': 'TkAgg',
-            'gtk': 'GTKAgg',
-            'gtk3': 'GTK3Agg',
-            'wx': 'WXAgg',
-            'qt': 'Qt4Agg', # qt3 not supported
-            'qt4': 'Qt4Agg',
-            'qt5': 'Qt5Agg',
-            'osx': 'MacOSX',
-            'nbagg': 'nbAgg',
-            'notebook': 'nbAgg',
-            'inline' : 'module://ipykernel.pylab.backend_inline'}
+
+# Matplotlib backend resolution functionality moved from IPython to Matplotlib
+# in IPython 8.24 and Matplotlib 3.9.0. The dicts below are still needed by the
+# find_gui_and_backend fallback path for Matplotlib < 3.9, which can be removed
+# when Python 3.12 (the last version supported by Matplotlib < 3.9) reaches
+# end-of-life in late 2028. The public module-level `backends` and
+# `backend2gui` aliases were deprecated in IPython 8.24 and removed in 9.16.
+_deprecated_backends = {
+    "tk": "TkAgg",
+    "gtk": "GTKAgg",
+    "gtk3": "GTK3Agg",
+    "gtk4": "GTK4Agg",
+    "wx": "WXAgg",
+    "qt4": "Qt4Agg",
+    "qt5": "Qt5Agg",
+    "qt6": "QtAgg",
+    "qt": "QtAgg",
+    "osx": "MacOSX",
+    "nbagg": "nbAgg",
+    "webagg": "WebAgg",
+    "notebook": "nbAgg",
+    "agg": "agg",
+    "svg": "svg",
+    "pdf": "pdf",
+    "ps": "ps",
+    "inline": "module://matplotlib_inline.backend_inline",
+    "ipympl": "module://ipympl.backend_nbagg",
+    "widget": "module://ipympl.backend_nbagg",
+}
 
 # We also need a reverse backends2guis mapping that will properly choose which
 # GUI support to activate based on the desired matplotlib backend.  For the
 # most part it's just a reverse of the above dict, but we also need to add a
 # few others that map to the same GUI manually:
-backend2gui = dict(zip(backends.values(), backends.keys()))
-# Our tests expect backend2gui to just return 'qt'
-backend2gui['Qt4Agg'] = 'qt'
+_deprecated_backend2gui = dict(
+    zip(_deprecated_backends.values(), _deprecated_backends.keys())
+)
 # In the reverse mapping, there are a few extra valid matplotlib backends that
 # map to the same GUI support
-backend2gui['GTK'] = backend2gui['GTKCairo'] = 'gtk'
-backend2gui['GTK3Cairo'] = 'gtk3'
-backend2gui['WX'] = 'wx'
-backend2gui['CocoaAgg'] = 'osx'
+_deprecated_backend2gui["GTK"] = _deprecated_backend2gui["GTKCairo"] = "gtk"
+_deprecated_backend2gui["GTK3Cairo"] = "gtk3"
+_deprecated_backend2gui["GTK4Cairo"] = "gtk4"
+_deprecated_backend2gui["WX"] = "wx"
+_deprecated_backend2gui["CocoaAgg"] = "osx"
+# There needs to be a hysteresis here as the new QtAgg Matplotlib backend
+# supports either Qt5 or Qt6 and the IPython qt event loop support Qt4, Qt5,
+# and Qt6.
+_deprecated_backend2gui["QtAgg"] = "qt"
+_deprecated_backend2gui["Qt4Agg"] = "qt4"
+_deprecated_backend2gui["Qt5Agg"] = "qt5"
+
+# And some backends that don't need GUI integration
+del _deprecated_backend2gui["nbAgg"]
+del _deprecated_backend2gui["agg"]
+del _deprecated_backend2gui["svg"]
+del _deprecated_backend2gui["pdf"]
+del _deprecated_backend2gui["ps"]
+del _deprecated_backend2gui["module://matplotlib_inline.backend_inline"]
+del _deprecated_backend2gui["module://ipympl.backend_nbagg"]
+
 
 #-----------------------------------------------------------------------------
 # Matplotlib utilities
@@ -82,54 +114,75 @@ def figsize(sizex, sizey):
     matplotlib.rcParams['figure.figsize'] = [sizex, sizey]
 
 
-def print_figure(fig, fmt='png', bbox_inches='tight', **kwargs):
+def print_figure(fig, fmt="png", bbox_inches="tight", base64=False, **kwargs):
     """Print a figure to an image, and return the resulting file data
-    
+
     Returned data will be bytes unless ``fmt='svg'``,
     in which case it will be unicode.
-    
+
     Any keyword args are passed to fig.canvas.print_figure,
     such as ``quality`` or ``bbox_inches``.
+
+    If `base64` is True, return base64-encoded str instead of raw bytes
+    for binary-encoded image formats
+
+    .. versionadded:: 7.29
+        base64 argument
     """
-    from matplotlib import rcParams
     # When there's an empty figure, we shouldn't return anything, otherwise we
     # get big blank areas in the qt console.
     if not fig.axes and not fig.lines:
         return
 
-    dpi = rcParams['savefig.dpi']
+    dpi = fig.dpi
     if fmt == 'retina':
         dpi = dpi * 2
         fmt = 'png'
-    
+
     # build keyword args
-    kw = dict(
-        format=fmt,
-        facecolor=fig.get_facecolor(),
-        edgecolor=fig.get_edgecolor(),
-        dpi=dpi,
-        bbox_inches=bbox_inches,
-    )
+    kw = {
+        "format":fmt,
+        "facecolor":fig.get_facecolor(),
+        "edgecolor":fig.get_edgecolor(),
+        "dpi":dpi,
+        "bbox_inches":bbox_inches,
+    }
     # **kwargs get higher priority
     kw.update(kwargs)
-    
+
     bytes_io = BytesIO()
+    if fig.canvas is None:
+        from matplotlib.backend_bases import FigureCanvasBase
+        FigureCanvasBase(fig)
+
     fig.canvas.print_figure(bytes_io, **kw)
     data = bytes_io.getvalue()
     if fmt == 'svg':
         data = data.decode('utf-8')
+    elif base64:
+        data = b2a_base64(data, newline=False).decode("ascii")
     return data
-    
-def retina_figure(fig, **kwargs):
-    """format a figure as a pixel-doubled (retina) PNG"""
-    pngdata = print_figure(fig, fmt='retina', **kwargs)
+
+def retina_figure(fig, base64=False, **kwargs):
+    """format a figure as a pixel-doubled (retina) PNG
+
+    If `base64` is True, return base64-encoded str instead of raw bytes
+    for binary-encoded image formats
+
+    .. versionadded:: 7.29
+        base64 argument
+    """
+    pngdata = print_figure(fig, fmt="retina", base64=False, **kwargs)
     # Make sure that retina_figure acts just like print_figure and returns
     # None when the figure is empty.
     if pngdata is None:
         return
     w, h = _pngxy(pngdata)
-    metadata = dict(width=w//2, height=h//2)
+    metadata = {"width": w//2, "height":h//2}
+    if base64:
+        pngdata = b2a_base64(pngdata, newline=False).decode("ascii")
     return pngdata, metadata
+
 
 # We need a little factory function here to create the closure where
 # safe_execfile can live.
@@ -139,15 +192,15 @@ def mpl_runner(safe_execfile):
     Parameters
     ----------
     safe_execfile : function
-      This must be a function with the same interface as the
-      :meth:`safe_execfile` method of IPython.
+        This must be a function with the same interface as the
+        :meth:`safe_execfile` method of IPython.
 
     Returns
     -------
     A function suitable for use as the ``runner`` argument of the %run magic
     function.
     """
-    
+
     def mpl_execfile(fname,*where,**kw):
         """matplotlib-aware wrapper around safe_execfile.
 
@@ -157,18 +210,28 @@ def mpl_runner(safe_execfile):
         properly handle interactive rendering."""
 
         import matplotlib
-        import matplotlib.pylab as pylab
+        import matplotlib.pyplot as plt
 
-        #print '*** Matplotlib runner ***' # dbg
+        # print('*** Matplotlib runner ***')  # dbg
         # turn off rendering until end of script
-        is_interactive = matplotlib.rcParams['interactive']
-        matplotlib.interactive(False)
-        safe_execfile(fname,*where,**kw)
-        matplotlib.interactive(is_interactive)
+        with matplotlib.rc_context({"interactive": False}):
+            safe_execfile(fname, *where, **kw)
+
+        if matplotlib.is_interactive():
+            plt.show()
+
         # make rendering call now, if the user tried to do it
-        if pylab.draw_if_interactive.called:
-            pylab.draw()
-            pylab.draw_if_interactive.called = False
+        if plt.draw_if_interactive.called:
+            plt.draw()
+            plt.draw_if_interactive.called = False
+
+        # re-draw everything that is stale
+        try:
+            da = plt.draw_all
+        except AttributeError:
+            pass
+        else:
+            da()
 
     return mpl_execfile
 
@@ -177,8 +240,8 @@ def _reshow_nbagg_figure(fig):
     """reshow an nbagg figure"""
     try:
         reshow = fig.canvas.manager.reshow
-    except AttributeError:
-        raise NotImplementedError()
+    except AttributeError as e:
+        raise NotImplementedError() from e
     else:
         reshow()
 
@@ -187,7 +250,7 @@ def select_figure_formats(shell, formats, **kwargs):
     """Select figure formats for the inline backend.
 
     Parameters
-    ==========
+    ----------
     shell : InteractiveShell
         The main IPython instance.
     formats : str or set
@@ -197,21 +260,20 @@ def select_figure_formats(shell, formats, **kwargs):
     """
     import matplotlib
     from matplotlib.figure import Figure
-    from ipykernel.pylab import backend_inline
 
     svg_formatter = shell.display_formatter.formatters['image/svg+xml']
     png_formatter = shell.display_formatter.formatters['image/png']
     jpg_formatter = shell.display_formatter.formatters['image/jpeg']
     pdf_formatter = shell.display_formatter.formatters['application/pdf']
 
-    if isinstance(formats, py3compat.string_types):
+    if isinstance(formats, str):
         formats = {formats}
     # cast in case of list / tuple
     formats = set(formats)
 
     [ f.pop(Figure, None) for f in shell.display_formatter.formatters.values() ]
-
-    if matplotlib.backends.backend.lower() == 'nbagg':
+    mplbackend = matplotlib.get_backend().lower()
+    if mplbackend in ("nbagg", "ipympl", "widget", "module://ipympl.backend_nbagg"):
         formatter = shell.display_formatter.ipython_display_formatter
         formatter.for_type(Figure, _reshow_nbagg_figure)
 
@@ -220,18 +282,24 @@ def select_figure_formats(shell, formats, **kwargs):
     if bad:
         bs = "%s" % ','.join([repr(f) for f in bad])
         gs = "%s" % ','.join([repr(f) for f in supported])
-        raise ValueError("supported formats are: %s not %s" % (gs, bs))
-    
-    if 'png' in formats:
-        png_formatter.for_type(Figure, lambda fig: print_figure(fig, 'png', **kwargs))
-    if 'retina' in formats or 'png2x' in formats:
-        png_formatter.for_type(Figure, lambda fig: retina_figure(fig, **kwargs))
-    if 'jpg' in formats or 'jpeg' in formats:
-        jpg_formatter.for_type(Figure, lambda fig: print_figure(fig, 'jpg', **kwargs))
-    if 'svg' in formats:
-        svg_formatter.for_type(Figure, lambda fig: print_figure(fig, 'svg', **kwargs))
-    if 'pdf' in formats:
-        pdf_formatter.for_type(Figure, lambda fig: print_figure(fig, 'pdf', **kwargs))
+        raise ValueError("supported formats are: {} not {}".format(gs, bs))
+
+    if "png" in formats:
+        png_formatter.for_type(
+            Figure, partial(print_figure, fmt="png", base64=True, **kwargs)
+        )
+    if "retina" in formats or "png2x" in formats:
+        png_formatter.for_type(Figure, partial(retina_figure, base64=True, **kwargs))
+    if "jpg" in formats or "jpeg" in formats:
+        jpg_formatter.for_type(
+            Figure, partial(print_figure, fmt="jpg", base64=True, **kwargs)
+        )
+    if "svg" in formats:
+        svg_formatter.for_type(Figure, partial(print_figure, fmt="svg", **kwargs))
+    if "pdf" in formats:
+        pdf_formatter.for_type(
+            Figure, partial(print_figure, fmt="pdf", base64=True, **kwargs)
+        )
 
 #-----------------------------------------------------------------------------
 # Code for initializing matplotlib and importing pylab
@@ -244,7 +312,7 @@ def find_gui_and_backend(gui=None, gui_select=None):
     Parameters
     ----------
     gui : str
-        Can be one of ('tk','gtk','wx','qt','qt4','inline').
+        Can be one of ('tk','gtk','wx','qt','qt4','inline','agg').
     gui_select : str
         Can be one of ('tk','gtk','wx','qt','qt4','inline').
         This is any gui already selected by the shell.
@@ -252,29 +320,60 @@ def find_gui_and_backend(gui=None, gui_select=None):
     Returns
     -------
     A tuple of (gui, backend) where backend is one of ('TkAgg','GTKAgg',
-    'WXAgg','Qt4Agg','module://ipykernel.pylab.backend_inline').
+    'WXAgg','Qt4Agg','module://matplotlib_inline.backend_inline','agg').
     """
 
     import matplotlib
 
+    if _matplotlib_manages_backends():
+        backend_registry = matplotlib.backends.registry.backend_registry
+
+        # gui argument may be a gui event loop or may be a backend name.
+        if gui in ("auto", None):
+            backend = matplotlib.rcParamsOrig["backend"]
+            backend, gui = backend_registry.resolve_backend(backend)
+        else:
+            gui = _convert_gui_to_matplotlib(gui)
+            backend, gui = backend_registry.resolve_gui_or_backend(gui)
+
+        gui = _convert_gui_from_matplotlib(gui)
+        return gui, backend
+
+    # Fallback to previous behaviour (Matplotlib < 3.9)
+    mpl_version_info = getattr(matplotlib, "__version_info__", (0, 0))
+    has_unified_qt_backend = mpl_version_info >= (3, 5)
+
+
+    backends_ = dict(_deprecated_backends)
+    if not has_unified_qt_backend:
+        backends_["qt"] = "qt5agg"
+
     if gui and gui != 'auto':
         # select backend based on requested gui
-        backend = backends[gui]
+        backend = backends_[gui]
+        if gui == 'agg':
+            gui = None
     else:
         # We need to read the backend from the original data structure, *not*
         # from mpl.rcParams, since a prior invocation of %matplotlib may have
         # overwritten that.
         # WARNING: this assumes matplotlib 1.1 or newer!!
         backend = matplotlib.rcParamsOrig['backend']
+
         # In this case, we need to find what the appropriate gui selection call
         # should be for IPython, so we can activate inputhook accordingly
-        gui = backend2gui.get(backend, None)
+        gui = _deprecated_backend2gui.get(backend, None)
 
         # If we have already had a gui active, we need it and inline are the
         # ones allowed.
         if gui_select and gui != gui_select:
             gui = gui_select
-            backend = backends[gui]
+            backend = backends_[gui]
+
+    # Matplotlib before _matplotlib_manages_backends() can return "inline" for
+    # no gui event loop rather than the None that IPython >= 8.24.0 expects.
+    if gui == "inline":
+        gui = None
 
     return gui, backend
 
@@ -284,32 +383,32 @@ def activate_matplotlib(backend):
 
     import matplotlib
     matplotlib.interactive(True)
-    
+
     # Matplotlib had a bug where even switch_backend could not force
     # the rcParam to update. This needs to be set *before* the module
     # magic of switch_backend().
     matplotlib.rcParams['backend'] = backend
 
-    import matplotlib.pyplot
-    matplotlib.pyplot.switch_backend(backend)
+    # Due to circular imports, pyplot may be only partially initialised
+    # when this function runs.
+    # So avoid needing matplotlib attribute-lookup to access pyplot.
+    from matplotlib import pyplot as plt
 
-    # This must be imported last in the matplotlib series, after
-    # backend/interactivity choices have been made
-    import matplotlib.pylab as pylab
+    plt.switch_backend(backend)
 
-    pylab.show._needmain = False
+    plt.show._needmain = False
     # We need to detect at runtime whether show() is called by the user.
     # For this, we wrap it into a decorator which adds a 'called' flag.
-    pylab.draw_if_interactive = flag_calls(pylab.draw_if_interactive)
+    plt.draw_if_interactive = flag_calls(plt.draw_if_interactive)
 
 
 def import_pylab(user_ns, import_all=True):
     """Populate the namespace with pylab-related values.
-    
+
     Imports matplotlib, pylab, numpy, and everything from pylab and numpy.
-    
+
     Also imports a few names from IPython (figsize, display, getfigs)
-    
+
     """
 
     # Import numpy as np/pyplot as plt are conventions we're trying to
@@ -322,74 +421,80 @@ def import_pylab(user_ns, import_all=True):
           "plt = pyplot\n"
           )
     exec(s, user_ns)
-    
+
     if import_all:
         s = ("from matplotlib.pylab import *\n"
              "from numpy import *\n")
         exec(s, user_ns)
-    
+
     # IPython symbols to add
     user_ns['figsize'] = figsize
-    from IPython.core.display import display
+    from IPython.display import display
     # Add display and getfigs to the user's namespace
     user_ns['display'] = display
     user_ns['getfigs'] = getfigs
 
 
-def configure_inline_support(shell, backend):
-    """Configure an IPython shell object for matplotlib use.
+# Determine if Matplotlib manages backends only if needed, and cache result.
+# Do not read this directly, instead use _matplotlib_manages_backends().
+_matplotlib_manages_backends_value: bool | None = None
 
-    Parameters
-    ----------
-    shell : InteractiveShell instance
 
-    backend : matplotlib backend
+def _matplotlib_manages_backends() -> bool:
+    """Return True if Matplotlib manages backends, False otherwise.
+
+    If it returns True, the caller can be sure that
+    matplotlib.backends.registry.backend_registry is available along with
+    member functions resolve_gui_or_backend, resolve_backend, list_all, and
+    list_gui_frameworks.
+
+    This function can be removed as it will always return True when Python
+    3.12, the latest version supported by Matplotlib < 3.9, reaches
+    end-of-life in late 2028.
     """
-    # If using our svg payload backend, register the post-execution
-    # function that will pick up the results for display.  This can only be
-    # done with access to the real shell object.
-
-    # Note: if we can't load the inline backend, then there's no point
-    # continuing (such as in terminal-only shells in environments without
-    # zeromq available).
-    try:
-        from ipykernel.pylab.backend_inline import InlineBackend
-    except ImportError:
-        return
-    from matplotlib import pyplot
-
-    cfg = InlineBackend.instance(parent=shell)
-    cfg.shell = shell
-    if cfg not in shell.configurables:
-        shell.configurables.append(cfg)
-
-    if backend == backends['inline']:
-        from ipykernel.pylab.backend_inline import flush_figures
-        shell.events.register('post_execute', flush_figures)
-
-        # Save rcParams that will be overwrittern
-        shell._saved_rcParams = dict()
-        for k in cfg.rc:
-            shell._saved_rcParams[k] = pyplot.rcParams[k]
-        # load inline_rc
-        pyplot.rcParams.update(cfg.rc)
-        new_backend_name = "inline"
-    else:
-        from ipykernel.pylab.backend_inline import flush_figures
+    global _matplotlib_manages_backends_value
+    if _matplotlib_manages_backends_value is None:
         try:
-            shell.events.unregister('post_execute', flush_figures)
-        except ValueError:
-            pass
-        if hasattr(shell, '_saved_rcParams'):
-            pyplot.rcParams.update(shell._saved_rcParams)
-            del shell._saved_rcParams
-        new_backend_name = "other"
+            from matplotlib.backends.registry import backend_registry
 
-    # only enable the formats once -> don't change the enabled formats (which the user may
-    # has changed) when getting another "%matplotlib inline" call.
-    # See https://github.com/ipython/ipykernel/issues/29
-    cur_backend = getattr(configure_inline_support, "current_backend", "unset")
-    if new_backend_name != cur_backend:
-        # Setup the default figure format
-        select_figure_formats(shell, cfg.figure_formats, **cfg.print_figure_kwargs)
-        configure_inline_support.current_backend = new_backend_name
+            _matplotlib_manages_backends_value = hasattr(
+                backend_registry, "resolve_gui_or_backend"
+            )
+        except ImportError:
+            _matplotlib_manages_backends_value = False
+
+    return _matplotlib_manages_backends_value
+
+
+def _list_matplotlib_backends_and_gui_loops() -> list[str]:
+    """Return list of all Matplotlib backends and GUI event loops.
+
+    This is the list returned by
+        %matplotlib --list
+    """
+    if _matplotlib_manages_backends():
+        from matplotlib.backends.registry import backend_registry
+
+        ret = backend_registry.list_all() + [
+            _convert_gui_from_matplotlib(gui)
+            for gui in backend_registry.list_gui_frameworks()
+        ]
+    else:
+        ret = list(_deprecated_backends.keys())
+
+    return sorted(["auto"] + ret)
+
+
+# Matplotlib and IPython do not always use the same gui framework name.
+# Always use the appropriate one of these conversion functions when passing a
+# gui framework name to/from Matplotlib.
+def _convert_gui_to_matplotlib(gui: str | None) -> str | None:
+    if gui and gui.lower() == "osx":
+        return "macosx"
+    return gui
+
+
+def _convert_gui_from_matplotlib(gui: str | None) -> str | None:
+    if gui and gui.lower() == "macosx":
+        return "osx"
+    return gui

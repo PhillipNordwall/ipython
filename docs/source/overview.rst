@@ -1,9 +1,6 @@
 .. _overview:
 
-============
-Introduction
-============
-
+========
 Overview
 ========
 
@@ -18,10 +15,13 @@ interactive and exploratory computing.  To support this goal, IPython
 has three main components:
 
 * An enhanced interactive Python shell.
+
 * A decoupled :ref:`two-process communication model <ipythonzmq>`, which
   allows for multiple clients to connect to a computation kernel, most notably
-  the web-based :ref:`notebook <htmlnotebook>`
-* An architecture for interactive parallel computing.
+  the web-based notebook provided with `Jupyter <https://jupyter.org>`_.
+
+* An architecture for interactive parallel computing now part of the
+  `ipyparallel` package.
 
 All of IPython is open source (released under the revised BSD license).
 
@@ -38,19 +38,19 @@ amongst others:
    tries to be a very efficient environment both for Python code development
    and for exploration of problems using Python objects (in situations like
    data analysis).
-  
+
 2. Serve as an embeddable, ready to use interpreter for your own
    programs. An interactive IPython shell can be started with a single call
    from inside another program, providing access to the current namespace.
    This can be very useful both for debugging purposes and for situations
    where a blend of batch-processing and interactive exploration are needed.
-  
+
 3. Offer a flexible framework which can be used as the base
    environment for working with other systems, with Python as the underlying
    bridge language. Specifically scientific environments like Mathematica,
    IDL and Matlab inspired its design, but similar ideas can be
    useful in many fields.
-  
+
 4. Allow interactive testing of threaded graphical toolkits. IPython
    has support for interactive, non-blocking control of GTK, Qt, WX, GLUT, and
    OS X applications via special threading flags. The normal Python
@@ -63,14 +63,13 @@ Main features of the interactive shell
   definition prototypes, source code, source files and other details
   of any object accessible to the interpreter with a single
   keystroke (:samp:`?`, and using :samp:`??` provides additional detail).
-  
+
 * Searching through modules and namespaces with :samp:`*` wildcards, both
   when using the :samp:`?` system and via the :samp:`%psearch` command.
 
 * Completion in the local namespace, by typing :kbd:`TAB` at the prompt.
   This works for keywords, modules, methods, variables and files in the
-  current directory. This is supported via the readline library, and
-  full access to configuring readline's behavior is provided. 
+  current directory. This is supported via the ``prompt_toolkit`` library.
   Custom completers can be implemented easily for different purposes
   (system commands, magic arguments etc.)
 
@@ -79,14 +78,14 @@ Main features of the interactive shell
   history and caching of all input and output.
 
 * User-extensible 'magic' commands. A set of commands prefixed with
-  :samp:`%` is available for controlling IPython itself and provides
+  :samp:`%`  or :samp:`%%` is available for controlling IPython itself and provides
   directory control, namespace information and many aliases to
   common system shell commands.
 
 * Alias facility for defining your own system aliases.
 
 * Complete system shell access. Lines starting with :samp:`!` are passed
-  directly to the system shell, and using :samp:`!!` or :samp:`var = !cmd` 
+  directly to the system shell, and using :samp:`!!` or :samp:`var = !cmd`
   captures shell output into python variables for further use.
 
 * The ability to expand python variables when calling the system shell. In a
@@ -102,8 +101,8 @@ Main features of the interactive shell
   allows you to save arbitrary Python variables. These get restored
   when you run the :samp:`%store -r` command.
 
-* Automatic indentation (optional) of code as you type (through the
-  readline library).
+* Automatic indentation and highlighting of code as you type (through the
+  `prompt_toolkit` library).
 
 * Macro system for quickly re-executing multiple lines of previous
   input with a single name via the :samp:`%macro` command. Macros can be
@@ -168,21 +167,20 @@ Main features of the interactive shell
 * Simple timing information. You can use the :samp:`%timeit` command to get
   the execution time of a Python statement or expression. This machinery is
   intelligent enough to do more repetitions for commands that finish very
-  quickly in order to get a better estimate of their running time. 
+  quickly in order to get a better estimate of their running time.
 
-.. sourcecode:: ipython
+  .. sourcecode:: ipython
 
     In [1]: %timeit 1+1
-    10000000 loops, best of 3: 25.5 ns per loop
+    7.88 ns ± 0.0494 ns per loop (mean ± std. dev. of 7 runs, 100000000 loops each)
 
     In [2]: %timeit [math.sin(x) for x in range(5000)]
-    1000 loops, best of 3: 719 µs per loop
+    608 µs ± 5.57 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
 
-.. 
+  ..
 
   To get the timing information for more than one expression, use the
   :samp:`%%timeit` cell magic command.
-  
 
 * Doctest support. The special :samp:`%doctest_mode` command toggles a mode
   to use doctest-compatible prompts, so you can use IPython sessions as
@@ -204,11 +202,12 @@ This decoupling allows us to have several clients connected to the same
 kernel, and even allows clients and kernels to live on different machines.
 With the exclusion of the traditional single process terminal-based IPython
 (what you start if you run ``ipython`` without any subcommands), all
-other IPython machinery uses this two-process model. This includes ``ipython
-console``,  ``ipython qtconsole``, and ``ipython notebook``.
+other IPython machinery uses this two-process model. Most of this is now part
+of the `Jupyter` project, which includes ``jupyter console``,  ``jupyter
+qtconsole``, and ``jupyter notebook``.
 
-As an example, this means that when you start ``ipython qtconsole``, you're
-really starting two processes, a kernel and a Qt-based client can send
+As an example, this means that when you start ``jupyter qtconsole``, you're
+really starting two processes, a kernel and a Qt-based client which can send
 commands to and receive results from that kernel. If there is already a kernel
 running that you want to connect to, you can pass the  ``--existing`` flag
 which will skip initiating a new kernel and connect to the most recent kernel,
@@ -217,74 +216,31 @@ running, use the ``%connect_info`` magic to get the unique connection file,
 which will be something like ``--existing kernel-19732.json`` but with
 different numbers which correspond to the Process ID of the kernel.
 
-You can read more about using `ipython qtconsole 
-<http://jupyter.org/qtconsole/>`_, and
-`ipython notebook <http://jupyter-notebook.readthedocs.org/en/latest/>`_. There 
-is also a :ref:`message spec <messaging>` which documents the protocol for 
+You can read more about using `jupyter qtconsole
+<https://qtconsole.readthedocs.io/>`_, and
+`jupyter notebook <https://jupyter-notebook.readthedocs.io/en/latest/>`_. There
+is also a :ref:`message spec <messaging>` which documents the protocol for
 communication between kernels
 and clients.
-
-.. seealso::
-    
-    `Frontend/Kernel Model`_ example notebook
-
 
 Interactive parallel computing
 ==============================
 
-Increasingly, parallel computer hardware, such as multicore CPUs, clusters and
-supercomputers, is becoming ubiquitous. Over the last several years, we have
-developed an architecture within IPython that allows such hardware to be used
-quickly and easily from Python. Moreover, this architecture is designed to
-support interactive and collaborative parallel computing.
 
-The main features of this system are:
-
-* Quickly parallelize Python code from an interactive Python/IPython session.
-
-* A flexible and dynamic process model that be deployed on anything from 
-  multicore workstations to supercomputers.
-
-* An architecture that supports many different styles of parallelism, from
-  message passing to task farming.  And all of these styles can be handled
-  interactively.
-
-* Both blocking and fully asynchronous interfaces.
-
-* High level APIs that enable many things to be parallelized in a few lines
-  of code.
-
-* Write parallel code that will run unchanged on everything from multicore
-  workstations to supercomputers.
-
-* Full integration with Message Passing libraries (MPI).
-
-* Capabilities based security model with full encryption of network connections.
-
-* Share live parallel jobs with other users securely.  We call this
-  collaborative parallel computing.
-
-* Dynamically load balanced task farming system.
-
-* Robust error handling.  Python exceptions raised in parallel execution are
-  gathered and presented to the top-level code.
-
-For more information, see our :ref:`overview <parallel_index>` of using IPython
-for parallel computing.
+This functionality is optional and now part of the `ipyparallel
+<https://ipyparallel.readthedocs.io/>`_ project.
 
 Portability and Python requirements
 -----------------------------------
 
-As of the 2.0 release, IPython works with Python 2.7 and 3.3 or above.
-Version 1.0 additionally worked with Python 2.6 and 3.2.
-Version 0.12 was the first version to fully support Python 3.
+IPython requires Python 3.11 or newer.
 
 IPython is known to work on the following operating systems:
 
 	* Linux
-	* Most other Unix-like OSs (AIX, Solaris, BSD, etc.)
-	* Mac OS X
-	* Windows (CygWin, XP, Vista, etc.)
+	* macOS
+	* Windows
+	* Most other Unix-like OSs (BSD, Solaris, etc.)
 
 See :ref:`here <install_index>` for instructions on how to install IPython.
 

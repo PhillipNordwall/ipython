@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Support for wildcard pattern matching in object inspection.
 
 Authors
@@ -18,7 +17,6 @@ import re
 import types
 
 from IPython.utils.dir2 import dir2
-from .py3compat import iteritems
 
 def create_typestr2type_dicts(dont_include_in_type2typestr=["lambda"]):
     """Return dictionaries mapping lower case typename (e.g. 'tuple') to type
@@ -78,14 +76,14 @@ def filter_ns(ns, name_pattern="*", type_pattern="all", ignore_case=True,
     """Filter a namespace dictionary by name pattern and item type."""
     pattern = name_pattern.replace("*",".*").replace("?",".")
     if ignore_case:
-        reg = re.compile(pattern+"$", re.I)
+        reg = re.compile(pattern+"$", re.IGNORECASE)
     else:
         reg = re.compile(pattern+"$")
 
     # Check each one matches regex; shouldn't be hidden; of correct type.
-    return dict((key,obj) for key, obj in iteritems(ns) if reg.match(key) \
+    return {key:obj for key, obj in ns.items() if reg.match(key) \
                                             and show_hidden(key, show_all) \
-                                            and is_type(obj, type_pattern) )
+                                            and is_type(obj, type_pattern) }
 
 def list_namespace(namespace, type_pattern, filter, ignore_case=False, show_all=False):
     """Return dictionary of all objects in a namespace dictionary that match
@@ -103,10 +101,10 @@ def list_namespace(namespace, type_pattern, filter, ignore_case=False, show_all=
                             type_pattern="all",
                             ignore_case=ignore_case, show_all=show_all)
         results = {}
-        for name, obj in iteritems(filtered):
+        for name, obj in filtered.items():
             ns = list_namespace(dict_dir(obj), type_pattern,
                                 ".".join(pattern_list[1:]),
                                 ignore_case=ignore_case, show_all=show_all)
-            for inner_name, inner_obj in iteritems(ns):
+            for inner_name, inner_obj in ns.items():
                 results["%s.%s"%(name,inner_name)] = inner_obj
         return results

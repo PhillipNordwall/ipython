@@ -1,18 +1,17 @@
-# encoding: utf-8
 """
 An application for managing IPython history.
 
 To be invoked as the `ipython history` subcommand.
 """
-from __future__ import print_function
 
-import os
 import sqlite3
+from contextlib import closing
+from pathlib import Path
 
 from traitlets.config.application import Application
-from IPython.core.application import BaseIPythonApplication
+from .application import BaseIPythonApplication
 from traitlets import Bool, Int, Dict
-from IPython.utils.io import ask_yes_no
+from ..utils.io import ask_yes_no
 
 trim_hist_help = """Trim the IPython history database to the last 1000 entries.
 
@@ -33,113 +32,111 @@ This is an handy alias to `ipython history trim --keep=0`
 
 class HistoryTrim(BaseIPythonApplication):
     description = trim_hist_help
-    
-    backup = Bool(False, config=True,
-        help="Keep the old history file as history.sqlite.<N>")
-    
-    keep = Int(1000, config=True,
-        help="Number of recent lines to keep in the database.")
-    
-    flags = Dict(dict(
-        backup = ({'HistoryTrim' : {'backup' : True}},
-            backup.get_metadata('help')
-        )
-    ))
 
-    aliases=Dict(dict(
-        keep = 'HistoryTrim.keep'
-    ))
-    
+    backup = Bool(False, help="Keep the old history file as history.sqlite.<N>").tag(
+        config=True
+    )
+
+    keep = Int(1000, help="Number of recent lines to keep in the database.").tag(
+        config=True
+    )
+
+    flags = Dict(  # type: ignore
+        dict(backup=({"HistoryTrim": {"backup": True}}, backup.help))
+    )
+
+    aliases = Dict(dict(keep="HistoryTrim.keep"))  # type: ignore
+
     def start(self):
-        profile_dir = self.profile_dir.location
-        hist_file = os.path.join(profile_dir, 'history.sqlite')
-        con = sqlite3.connect(hist_file)
+        profile_dir = Path(self.profile_dir.location)
+        hist_file = profile_dir / "history.sqlite"
+        # Connections must be closed, not merely committed, before the file
+        # shuffling below: Windows refuses to unlink or rename a database
+        # that still has open handles.
+        with closing(sqlite3.connect(hist_file)) as con:
+            # Grab the recent history from the current database.
+            inputs = list(con.execute('SELECT session, line, source, source_raw FROM '
+                                    'history ORDER BY session DESC, line DESC LIMIT ?', (self.keep+1,)))
+            if len(inputs) <= self.keep:
+                print("There are already at most %d entries in the history database." % self.keep)
+                print("Not doing anything. Use --keep= argument to keep fewer entries")
+                return
 
-        # Grab the recent history from the current database.
-        inputs = list(con.execute('SELECT session, line, source, source_raw FROM '
-                                'history ORDER BY session DESC, line DESC LIMIT ?', (self.keep+1,)))
-        if len(inputs) <= self.keep:
-            print("There are already at most %d entries in the history database." % self.keep)
-            print("Not doing anything. Use --keep= argument to keep fewer entries")
-            return
-        
-        print("Trimming history to the most recent %d entries." % self.keep)
-        
-        inputs.pop() # Remove the extra element we got to check the length.
-        inputs.reverse()
-        if inputs:
-            first_session = inputs[0][0]
-            outputs = list(con.execute('SELECT session, line, output FROM '
-                                       'output_history WHERE session >= ?', (first_session,)))
-            sessions = list(con.execute('SELECT session, start, end, num_cmds, remark FROM '
-                                        'sessions WHERE session >= ?', (first_session,)))
-        con.close()
-        
+            print("Trimming history to the most recent %d entries." % self.keep)
+
+            inputs.pop() # Remove the extra element we got to check the length.
+            inputs.reverse()
+            if inputs:
+                first_session = inputs[0][0]
+                outputs = list(con.execute('SELECT session, line, output FROM '
+                                        'output_history WHERE session >= ?', (first_session,)))
+                sessions = list(con.execute('SELECT session, start, end, num_cmds, remark FROM '
+                                            'sessions WHERE session >= ?', (first_session,)))
+
         # Create the new history database.
-        new_hist_file = os.path.join(profile_dir, 'history.sqlite.new')
+        new_hist_file = profile_dir / "history.sqlite.new"
         i = 0
-        while os.path.exists(new_hist_file):
+        while new_hist_file.exists():
             # Make sure we don't interfere with an existing file.
             i += 1
-            new_hist_file = os.path.join(profile_dir, 'history.sqlite.new'+str(i))
-        new_db = sqlite3.connect(new_hist_file)
-        new_db.execute("""CREATE TABLE IF NOT EXISTS sessions (session integer
-                            primary key autoincrement, start timestamp,
-                            end timestamp, num_cmds integer, remark text)""")
-        new_db.execute("""CREATE TABLE IF NOT EXISTS history
-                        (session integer, line integer, source text, source_raw text,
-                        PRIMARY KEY (session, line))""")
-        new_db.execute("""CREATE TABLE IF NOT EXISTS output_history
-                        (session integer, line integer, output text,
-                        PRIMARY KEY (session, line))""")
-        new_db.commit()
+            new_hist_file = profile_dir / ("history.sqlite.new" + str(i))
+        with closing(sqlite3.connect(new_hist_file)) as new_db:
+            new_db.execute("""CREATE TABLE IF NOT EXISTS sessions (session integer
+                                primary key autoincrement, start timestamp,
+                                end timestamp, num_cmds integer, remark text)""")
+            new_db.execute("""CREATE TABLE IF NOT EXISTS history
+                            (session integer, line integer, source text, source_raw text,
+                            PRIMARY KEY (session, line))""")
+            new_db.execute("""CREATE TABLE IF NOT EXISTS output_history
+                            (session integer, line integer, output text,
+                            PRIMARY KEY (session, line))""")
+            new_db.commit()
 
 
-        if inputs:
-            with new_db:
-                # Add the recent history into the new database.
-                new_db.executemany('insert into sessions values (?,?,?,?,?)', sessions)
-                new_db.executemany('insert into history values (?,?,?,?)', inputs)
-                new_db.executemany('insert into output_history values (?,?,?)', outputs)
-        new_db.close()
+            if inputs:
+                with new_db:
+                    # Add the recent history into the new database.
+                    new_db.executemany('insert into sessions values (?,?,?,?,?)', sessions)
+                    new_db.executemany('insert into history values (?,?,?,?)', inputs)
+                    new_db.executemany('insert into output_history values (?,?,?)', outputs)
 
         if self.backup:
             i = 1
-            backup_hist_file = os.path.join(profile_dir, 'history.sqlite.old.%d' % i)
-            while os.path.exists(backup_hist_file):
+            backup_hist_file = profile_dir / ("history.sqlite.old.%d" % i)
+            while backup_hist_file.exists():
                 i += 1
-                backup_hist_file = os.path.join(profile_dir, 'history.sqlite.old.%d' % i)
-            os.rename(hist_file, backup_hist_file)
+                backup_hist_file = profile_dir / ("history.sqlite.old.%d" % i)
+            hist_file.rename(backup_hist_file)
             print("Backed up longer history file to", backup_hist_file)
         else:
-            os.remove(hist_file)
-        
-        os.rename(new_hist_file, hist_file)
+            hist_file.unlink()
+
+        new_hist_file.rename(hist_file)
+
 
 class HistoryClear(HistoryTrim):
     description = clear_hist_help
-    keep = Int(0, config=False,
-        help="Number of recent lines to keep in the database.")
-    
-    force = Bool(False, config=True,
-        help="Don't prompt user for confirmation")
-    
-    flags = Dict(dict(
-        force = ({'HistoryClear' : {'force' : True}},
-            force.get_metadata('help')),
-        f = ({'HistoryTrim' : {'force' : True}},
-            force.get_metadata('help')
+    keep = Int(0, help="Number of recent lines to keep in the database.")
+
+    force = Bool(False, help="Don't prompt user for confirmation").tag(config=True)
+
+    flags = Dict(  # type: ignore
+        dict(
+            force=({"HistoryClear": {"force": True}}, force.help),
+            f=({"HistoryTrim": {"force": True}}, force.help),
         )
-    ))
-    aliases = Dict()
+    )
+    aliases = Dict()  # type: ignore
 
     def start(self):
-        if self.force or ask_yes_no("Really delete all ipython history? ",
-                default="no", interrupt="no"):
+        if self.force or ask_yes_no(
+            "Really delete all ipython history? ", default="no", interrupt="no"
+        ):
             HistoryTrim.start(self)
 
+
 class HistoryApp(Application):
-    name = u'ipython-history'
+    name = "ipython-history"
     description = "Manage the IPython history database."
 
     subcommands = Dict(dict(
@@ -149,9 +146,11 @@ class HistoryApp(Application):
 
     def start(self):
         if self.subapp is None:
-            print("No subcommand specified. Must specify one of: %s" % \
-                                                    (self.subcommands.keys()))
-            print()
+            print(
+                "No subcommand specified. Must specify one of: "
+                + ", ".join(map(repr, self.subcommands))
+                + ".\n"
+            )
             self.print_description()
             self.print_subcommands()
             self.exit(1)

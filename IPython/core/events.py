@@ -12,76 +12,111 @@ events and the arguments which will be passed to them.
 
    This API is experimental in IPython 2.0, and may be revised in future versions.
 """
-from __future__ import print_function
 
-class EventManager(object):
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import Callable, Iterable
+
+if TYPE_CHECKING:
+    from IPython.core.interactiveshell import (
+        ExecutionInfo,
+        ExecutionResult,
+        InteractiveShell,
+    )
+
+
+class EventManager:
     """Manage a collection of events and a sequence of callbacks for each.
-    
+
     This is attached to :class:`~IPython.core.interactiveshell.InteractiveShell`
     instances as an ``events`` attribute.
-    
+
     .. note::
 
        This API is experimental in IPython 2.0, and may be revised in future versions.
     """
-    def __init__(self, shell, available_events):
+
+    def __init__(
+        self,
+        shell: InteractiveShell,
+        available_events: Iterable[str],
+        print_on_error: bool = True,
+    ) -> None:
         """Initialise the :class:`CallbackManager`.
-        
+
         Parameters
         ----------
         shell
-          The :class:`~IPython.core.interactiveshell.InteractiveShell` instance
-        available_callbacks
-          An iterable of names for callback events.
+            The :class:`~IPython.core.interactiveshell.InteractiveShell` instance
+        available_events
+            An iterable of names for callback events.
+        print_on_error:
+            A boolean flag to set whether the EventManager will print a warning which a event errors.
         """
         self.shell = shell
-        self.callbacks = {n:[] for n in available_events}
-    
-    def register(self, event, function):
-        """Register a new event callback
-        
+        self.callbacks: dict[str, list[Callable[..., Any]]] = {
+            n: [] for n in available_events
+        }
+        self.print_on_error = print_on_error
+
+    def register(self, event: str, function: Callable[..., Any]) -> None:
+        """Register a new event callback.
+
         Parameters
         ----------
         event : str
-          The event for which to register this callback.
+            The event for which to register this callback.
         function : callable
-          A function to be called on the given event. It should take the same
-          parameters as the appropriate callback prototype.
-        
+            A function to be called on the given event. It should take the same
+            parameters as the appropriate callback prototype.
+
         Raises
         ------
         TypeError
-          If ``function`` is not callable.
+            If ``function`` is not callable.
         KeyError
-          If ``event`` is not one of the known events.
+            If ``event`` is not one of the known events.
         """
         if not callable(function):
             raise TypeError('Need a callable, got %r' % function)
-        self.callbacks[event].append(function)
-    
-    def unregister(self, event, function):
+        if function not in self.callbacks[event]:
+            self.callbacks[event].append(function)
+
+    def unregister(self, event: str, function: Callable[..., Any]) -> None:
         """Remove a callback from the given event."""
-        self.callbacks[event].remove(function)
-    
-    def trigger(self, event, *args, **kwargs):
+        if function in self.callbacks[event]:
+            return self.callbacks[event].remove(function)
+
+        raise ValueError(f'Function {function!r} is not registered as a {event} callback')
+
+    def trigger(self, event: str, *args: Any, **kwargs: Any) -> None:
         """Call callbacks for ``event``.
-        
+
         Any additional arguments are passed to all callbacks registered for this
         event. Exceptions raised by callbacks are caught, and a message printed.
         """
-        for func in self.callbacks[event]:
+        for func in self.callbacks[event][:]:
             try:
                 func(*args, **kwargs)
-            except Exception:
-                print("Error in callback {} (for {}):".format(func, event))
+            except (Exception, KeyboardInterrupt):
+                if self.print_on_error:
+                    print(
+                        "Error in callback {} (for {}), with arguments args {},kwargs {}:".format(
+                            func, event, args, kwargs
+                        )
+                    )
                 self.shell.showtraceback()
 
 # event_name -> prototype mapping
-available_events = {}
+available_events: dict[str, Callable[..., Any]] = {}
 
-def _define_event(callback_proto):
-    available_events[callback_proto.__name__] = callback_proto
-    return callback_proto
+_CallbackT = TypeVar("_CallbackT", bound=Callable[..., Any])
+
+def _define_event(callback_function: _CallbackT) -> _CallbackT:
+    """Decorator to register a function as an available event prototype."""
+    available_events[callback_function.__name__] = callback_function
+    return callback_function
 
 # ------------------------------------------------------------------------------
 # Callback prototypes
@@ -91,41 +126,55 @@ def _define_event(callback_proto):
 # ------------------------------------------------------------------------------
 
 @_define_event
-def pre_execute():
+def pre_execute() -> None:
     """Fires before code is executed in response to user/frontend action.
-    
+
     This includes comm and widget messages and silent execution, as well as user
-    code cells."""
+    code cells.
+    """
     pass
 
 @_define_event
-def pre_run_cell():
-    """Fires before user-entered code runs."""
+def pre_run_cell(info: ExecutionInfo) -> None:
+    """Fires before user-entered code runs.
+
+    Parameters
+    ----------
+    info : :class:`~IPython.core.interactiveshell.ExecutionInfo`
+        An object containing information used for the code execution.
+    """
     pass
 
 @_define_event
-def post_execute():
+def post_execute() -> None:
     """Fires after code is executed in response to user/frontend action.
-    
+
     This includes comm and widget messages and silent execution, as well as user
-    code cells."""
+    code cells.
+    """
     pass
 
 @_define_event
-def post_run_cell():
-    """Fires after user-entered code runs."""
+def post_run_cell(result: ExecutionResult) -> None:
+    """Fires after user-entered code runs.
+
+    Parameters
+    ----------
+    result : :class:`~IPython.core.interactiveshell.ExecutionResult`
+        The object which will be returned as the execution result.
+    """
     pass
 
 @_define_event
-def shell_initialized(ip):
+def shell_initialized(ip: InteractiveShell) -> None:
     """Fires after initialisation of :class:`~IPython.core.interactiveshell.InteractiveShell`.
-    
+
     This is before extensions and startup scripts are loaded, so it can only be
     set by subclassing.
-    
+
     Parameters
     ----------
     ip : :class:`~IPython.core.interactiveshell.InteractiveShell`
-      The newly initialised shell.
+        The newly initialised shell.
     """
     pass

@@ -3,7 +3,9 @@
 This file just contains doctests both using plain python and IPython prompts.
 All tests should be loaded by nose.
 """
-from __future__ import print_function
+
+import os
+
 
 def pyfunc():
     """Some pure python tests...
@@ -20,7 +22,7 @@ def pyfunc():
     ...     print(i, end=' ')
     ...     print(i+1, end=' ')
     ...
-    0 1 1 2 2 3 
+    0 1 1 2 2 3
     """
     return 'pyfunc'
 
@@ -36,20 +38,8 @@ def ipfunc():
        ....:     print(i, end=' ')
        ....:     print(i+1, end=' ')
        ....:
-    0 1 1 2 2 3 
+    0 1 1 2 2 3
 
-
-    Examples that access the operating system work:
-
-    In [1]: !echo hello
-    hello
-
-    In [2]: !echo hello > /tmp/foo_iptest
-
-    In [3]: !cat /tmp/foo_iptest
-    hello
-
-    In [4]: rm -f /tmp/foo_iptest
 
     It's OK to use '_' for the last result, but do NOT try to use IPython's
     numbered history of _NN outputs, since those won't exist under the
@@ -60,7 +50,7 @@ def ipfunc():
 
     In [8]: print(repr(_))
     'hi'
-    
+
     In [7]: 3+4
     Out[7]: 7
 
@@ -70,7 +60,26 @@ def ipfunc():
     In [9]: ipfunc()
     Out[9]: 'ipfunc'
     """
-    return 'ipfunc'
+    return "ipfunc"
+
+
+def ipos():
+    """Examples that access the operating system work:
+
+    In [1]: !echo hello
+    hello
+
+    In [2]: !echo hello > /tmp/foo_iptest
+
+    In [3]: !cat /tmp/foo_iptest
+    hello
+
+    In [4]: rm -f /tmp/foo_iptest
+    """
+    pass
+
+
+ipos.__skip_doctest__ = os.name == "nt"
 
 
 def ranfunc():
@@ -145,7 +154,7 @@ def iprand_all():
     """Some ipython tests with fully random output.
 
     # all-random
-    
+
     In [7]: 1
     Out[7]: 99
 

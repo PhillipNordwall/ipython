@@ -11,20 +11,24 @@ You start IPython with the command::
 
     $ ipython [options] files
 
-If invoked with no options, it executes all the files listed in sequence
-and drops you into the interpreter while still acknowledging any options
-you may have set in your ipython_config.py. This behavior is different from
-standard Python, which when called as python -i will only execute one
-file and ignore your configuration setup.
+If invoked with no options, it executes the file and exits, passing the
+remaining arguments to the script, just as if you had specified the same
+command with python. You may need to specify ``--`` before args to be passed
+to the script, to prevent IPython from attempting to parse them.
+If you add the ``-i`` flag, it drops you into the interpreter while still
+acknowledging any options you may have set in your ``ipython_config.py``. This
+behavior is different from standard Python, which when called as python ``-i``
+will only execute one file and ignore your configuration setup.
 
-Please note that some of the configuration options are not available at
-the command line, simply because they are not practical here. Look into
-your configuration files for details on those. There are separate configuration 
-files for each profile, and the files look like :file:`ipython_config.py` or
-:file:`ipython_config_{frontendname}.py`.  Profile directories look like
-:file:`profile_{profilename}` and are typically installed in the :envvar:`IPYTHONDIR` directory,
-which defaults to :file:`$HOME/.ipython`. For Windows users, :envvar:`HOME`
-resolves to :file:`C:\\Users\\{YourUserName}` in most instances.
+Please note that some of the configuration options are not available at the
+command line, simply because they are not practical here. Look into your
+configuration files for details on those. There are separate configuration files
+for each profile, and the files look like :file:`ipython_config.py` (or
+:file:`ipython_kernel_config.py` for the kernel).  Profile directories look like
+:file:`profile_{profilename}` and are typically installed in the
+:envvar:`IPYTHONDIR` directory, which defaults to :file:`$HOME/.ipython`. For
+Windows users, :envvar:`HOME` resolves to :file:`C:\\Users\\{YourUserName}` in
+most instances.
 
 Command-line Options
 --------------------
@@ -36,11 +40,24 @@ alias to control them, but IPython lets you configure all of its objects from
 the command-line by passing the full class name and a corresponding value; type
 ``ipython --help-all`` to see this full list.  For example::
 
-  ipython --matplotlib qt
+    $ ipython --help-all
+    <...snip...>
+    --matplotlib=<CaselessStrEnum> (InteractiveShellApp.matplotlib)
+        Default: None
+        Choices: ['auto', 'gtk3', 'gtk4', 'inline', 'nbagg', 'notebook', 'osx', 'qt', 'qt5', 'qt6', 'tk', 'wx']
+        Configure matplotlib for interactive use with the default matplotlib
+        backend.
+    <...snip...>
+
+
+Indicate that the following::
+
+   $ ipython --matplotlib qt
+
 
 is equivalent to::
 
-  ipython --TerminalIPythonApp.matplotlib='qt'
+   $ ipython --InteractiveShellApp.matplotlib='qt'
 
 Note that in the second form, you *must* use the equal sign, as the expression
 is evaluated as an actual Python assignment.  While in the above example the
@@ -63,8 +80,8 @@ prompt. What follows is a list of these.
 Caution for Windows users
 -------------------------
 
-Windows, unfortunately, uses the '\\' character as a path separator. This is a
-terrible choice, because '\\' also represents the escape character in most
+Windows, unfortunately, uses the ``\`` character as a path separator. This is a
+terrible choice, because ``\`` also represents the escape character in most
 modern programming languages, including Python. For this reason, using '/'
 character is recommended if you have problems with ``\``.  However, in Windows
 commands '/' flags options, so you can not use it for the root directory. This
@@ -95,17 +112,17 @@ the same name::
       /home/fperez
 
 The following uses the builtin :magic:`timeit` in cell mode::
-  
+
   In [10]: %%timeit x = range(10000)
       ...: min(x)
       ...: max(x)
-      ...: 
-  1000 loops, best of 3: 438 us per loop
+      ...:
+  518 µs ± 4.39 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
 
 In this case, ``x = range(10000)`` is called as the line argument, and the
 block with ``min(x)`` and ``max(x)`` is called as the cell body.  The
 :magic:`timeit` magic receives both.
-  
+
 If you have 'automagic' enabled (as it is by default), you don't need to type in
 the single ``%`` explicitly for line magics; IPython will scan its internal
 list of magic functions and call one if it exists. With automagic on you can
@@ -116,7 +133,7 @@ then just type ``cd mydir`` to go to directory 'mydir'::
 
 Cell magics *always* require an explicit ``%%`` prefix, automagic
 calling only works for line magics.
-      
+
 The automagic system has the lowest possible precedence in name searches, so
 you can freely use variables with the same names as magic commands. If a magic
 command is 'shadowed' by a variable, you will need the explicit ``%`` prefix to
@@ -145,9 +162,9 @@ use it:
 
     /home/fperez/ipython
 
-Line magics, if they return a value, can be assigned to a variable using the syntax
-``l = %sx ls`` (which in this particular case returns the result of `ls` as a python list).  
-See :ref:`below <manual_capture>` for more information.
+Line magics, if they return a value, can be assigned to a variable using the
+syntax ``l = %sx ls`` (which in this particular case returns the result of ``ls``
+as a python list). See :ref:`below <manual_capture>` for more information.
 
 Type ``%magic`` for more information, including a list of all available magic
 functions at any time and their docstrings. You can also type
@@ -215,15 +232,6 @@ The dynamic object information functions (?/??, ``%pdoc``,
 directly on variables. For example, after doing ``import os``, you can use
 ``os.path.abspath??``.
 
-.. _readline:
-
-Readline-based features
------------------------
-
-These features require the GNU readline library, so they won't work if your
-Python installation lacks readline support. We will first describe the default
-behavior IPython uses, and then how to change it to suit your preferences.
-
 
 Command line completion
 +++++++++++++++++++++++
@@ -254,61 +262,18 @@ time you restart it. By default, the history file is named
 Autoindent
 ++++++++++
 
-IPython can recognize lines ending in ':' and indent the next line,
-while also un-indenting automatically after 'raise' or 'return'.
+Starting with 5.0, IPython uses `prompt_toolkit` in place of ``readline``,
+it thus can recognize lines ending in ':' and indent the next line,
+while also un-indenting automatically after 'raise' or 'return',
+and support real multi-line editing as well as syntactic coloration
+during edition.
 
-This feature uses the readline library, so it will honor your
-:file:`~/.inputrc` configuration (or whatever file your :envvar:`INPUTRC` environment variable points
-to). Adding the following lines to your :file:`.inputrc` file can make
-indenting/unindenting more convenient (M-i indents, M-u unindents)::
+This feature does not use the ``readline`` library anymore, so it will
+not honor your :file:`~/.inputrc` configuration (or whatever
+file your :envvar:`INPUTRC` environment variable points to).
 
-    # if you don't already have a ~/.inputrc file, you need this include:
-    $include /etc/inputrc
-    
-    $if Python 
-    "\M-i": "    "  
-    "\M-u": "\d\d\d\d"  
-    $endif
-
-Note that there are 4 spaces between the quote marks after "M-i" above.
-
-.. warning::
-
-    Setting the above indents will cause problems with unicode text entry in
-    the terminal.
-
-.. warning::
-
-    Autoindent is ON by default, but it can cause problems with the pasting of
-    multi-line indented code (the pasted code gets re-indented on each line). A
-    magic function %autoindent allows you to toggle it on/off at runtime. You
-    can also disable it permanently on in your :file:`ipython_config.py` file
-    (set TerminalInteractiveShell.autoindent=False).
-    
-    If you want to paste multiple lines in the terminal, it is recommended that
-    you use ``%paste``.
-
-
-Customizing readline behavior
-+++++++++++++++++++++++++++++
-
-All these features are based on the GNU readline library, which has an
-extremely customizable interface. Normally, readline is configured via a
-:file:`.inputrc` file. IPython respects this, and you can also customise readline
-by setting the following :doc:`configuration </config/intro>` options:
-
-    * ``InteractiveShell.readline_parse_and_bind``: this holds a list of strings to be executed
-      via a readline.parse_and_bind() command. The syntax for valid commands
-      of this kind can be found by reading the documentation for the GNU
-      readline library, as these commands are of the kind which readline
-      accepts in its configuration file.
-    * ``InteractiveShell.readline_remove_delims``: a string of characters to be removed
-      from the default word-delimiters list used by readline, so that
-      completions may be performed on strings which contain them. Do not
-      change the default value unless you know what you're doing.
-
-You will find the default values in your configuration file.
-
+In particular if you want to change the input mode to ``vi``, you will need to
+set the ``TerminalInteractiveShell.editing_mode`` configuration  option of IPython.
 
 Session logging and restoring
 -----------------------------
@@ -346,6 +311,9 @@ one of (note that the modes are given unquoted):
     * [append:] well, that says it.
     * [rotate:] create rotating logs log_name.1~, log_name.2~, etc.
 
+Adding the '-o' flag to '%logstart' magic (as in '%logstart -o [log_name [log_mode]]')
+will also include output from iPython in the log file.
+
 The :magic:`logoff` and :magic:`logon` functions allow you to temporarily stop and
 resume logging to a file which had previously been started with
 %logstart. They will fail (with an explanation) if you try to use them
@@ -356,8 +324,8 @@ before logging has been started.
 System shell access
 -------------------
 
-Any input line beginning with a ! character is passed verbatim (minus
-the !, of course) to the underlying operating system. For example,
+Any input line beginning with a ``!`` character is passed verbatim (minus
+the ``!``, of course) to the underlying operating system. For example,
 typing ``!ls`` will run 'ls' in the current directory.
 
 .. _manual_capture:
@@ -369,22 +337,22 @@ You can assign the result of a system command to a Python variable with the
 syntax ``myfiles = !ls``. Similarly, the result of a magic (as long as it returns
 a value) can be assigned to a variable.  For example, the syntax ``myfiles = %sx ls``
 is equivalent to the above system command example (the :magic:`sx` magic runs a shell command
-and captures the output).  Each of these gets machine 
-readable output from stdout (e.g. without colours), and splits on newlines. To 
-explicitly get this sort of output without assigning to a variable, use two 
+and captures the output).  Each of these gets machine
+readable output from stdout (e.g. without colours), and splits on newlines. To
+explicitly get this sort of output without assigning to a variable, use two
 exclamation marks (``!!ls``) or the :magic:`sx` magic command without an assignment.
 (However, ``!!`` commands cannot be assigned to a variable.)
 
 The captured list in this example has some convenience features. ``myfiles.n`` or ``myfiles.s``
 returns a string delimited by newlines or spaces, respectively. ``myfiles.p``
-produces `path objects <http://pypi.python.org/pypi/path.py>`_ from the list items.
-See :ref:`string_lists` for details.
+produces :class:`pathlib.Path` objects for the list items which exist on the
+filesystem. See :ref:`string_lists` for details.
 
 IPython also allows you to expand the value of python variables when
 making system calls. Wrap variables or expressions in {braces}::
 
-    In [1]: pyvar = 'Hello world' 
-    In [2]: !echo "A python variable: {pyvar}"  
+    In [1]: pyvar = 'Hello world'
+    In [2]: !echo "A python variable: {pyvar}"
     A python variable: Hello world
     In [3]: import math
     In [4]: x = 8
@@ -393,12 +361,12 @@ making system calls. Wrap variables or expressions in {braces}::
 
 For simple cases, you can alternatively prepend $ to a variable name::
 
-    In [6]: !echo $sys.argv  
+    In [6]: !echo $sys.argv
     [/home/fperez/usr/bin/ipython]
     In [7]: !echo "A system variable: $$HOME"  # Use $$ for literal $
     A system variable: /home/fperez
 
-Note that `$$` is used to represent a literal `$`.
+Note that ``$$`` is used to represent a literal ``$``.
 
 System command aliases
 ----------------------
@@ -411,15 +379,15 @@ system shell commands. These aliases can have parameters.
 Then, typing ``alias_name params`` will execute the system command 'cmd
 params' (from your underlying operating system).
 
-You can also define aliases with parameters using %s specifiers (one per
+You can also define aliases with parameters using ``%s`` specifiers (one per
 parameter). The following example defines the parts function as an
-alias to the command 'echo first %s second %s' where each %s will be
+alias to the command ``echo first %s second %s`` where each ``%s`` will be
 replaced by a positional parameter to the call to %parts::
 
     In [1]: %alias parts echo first %s second %s
     In [2]: parts A B
     first A second B
-    In [3]: parts A  
+    In [3]: parts A
     ERROR: Alias <parts> requires 2 arguments, 1 given.
 
 If called with no parameters, :magic:`alias` prints the table of currently
@@ -454,7 +422,7 @@ to parse visually.
 See the magic :magic:`xmode` and :magic:`colors` functions for details.
 
 These features are basically a terminal version of Ka-Ping Yee's cgitb
-module, now part of the standard Python library.
+module, formerly part of the standard Python library.
 
 
 .. _input_caching:
@@ -463,19 +431,21 @@ Input caching system
 --------------------
 
 IPython offers numbered prompts (In/Out) with input and output caching
-(also referred to as 'input history'). All input is saved and can be 
-retrieved as variables (besides the usual arrow key recall), in 
+(also referred to as 'input history'). All input is saved and can be
+retrieved as variables (besides the usual arrow key recall), in
 addition to the :magic:`rep` magic command that brings a history entry
 up for editing on the next command line.
 
 The following variables always exist:
 
-* _i, _ii, _iii: store previous, next previous and next-next previous inputs.
-* In, _ih : a list of all inputs; _ih[n] is the input from line n. If you
-  overwrite In with a variable of your own, you can remake the assignment to the
-  internal list with a simple ``In=_ih``.
+* ``_i``, ``_ii``, ``_iii``: store previous, next previous and next-next
+  previous inputs.
 
-Additionally, global variables named _i<n> are dynamically created (<n>
+* ``In``, ``_ih`` : a list of all inputs; ``_ih[n]`` is the input from line
+  ``n``. If you overwrite In with a variable of your own, you can remake the
+  assignment to the internal list with a simple ``In=_ih``.
+
+Additionally, global variables named ``_i<n>`` are dynamically created (``<n>``
 being the prompt counter), so ``_i<n> == _ih[<n>] == In[<n>]``.
 
 For example, what you typed at prompt 14 is available as ``_i14``, ``_ih[14]``
@@ -486,15 +456,15 @@ by printing them out: they print like a clean string, without prompt
 characters. You can also manipulate them like regular variables (they
 are strings), modify or exec them.
 
-You can also re-execute multiple lines of input easily by using the
-magic :magic:`rerun` or :magic:`macro` functions. The macro system also allows you to re-execute
-previous lines which include magic function calls (which require special
-processing). Type %macro? for more details on the macro system.
+You can also re-execute multiple lines of input easily by using the magic
+:magic:`rerun` or :magic:`macro` functions. The macro system also allows you to
+re-execute previous lines which include magic function calls (which require
+special processing). Type %macro? for more details on the macro system.
 
 A history function :magic:`history` allows you to see any part of your input
 history by printing a range of the _i variables.
 
-You can also search ('grep') through your history by typing 
+You can also search ('grep') through your history by typing
 ``%hist -g somestring``. This is handy for searching for URLs, IP addresses,
 etc. You can bring history entries listed by '%hist -g' up for editing
 with the %recall command, or run them immediately with :magic:`rerun`.
@@ -580,9 +550,12 @@ will confuse IPython)::
 
 but this will work::
 
-    In [5]: /zip (1,2,3),(4,5,6) 
-    ------> zip ((1,2,3),(4,5,6))  
-    Out[5]: [(1, 4), (2, 5), (3, 6)]
+    In [5]: /zip (1,2,3),(4,5,6)
+    ------> zip ((1,2,3),(4,5,6))
+    Out[5]: <zip at 0x7f0e19dc1c80>
+
+    In [6]: list(_)
+    Out[6]: [(1, 4), (2, 5), (3, 6)]
 
 IPython tells you that it has altered your command line by displaying
 the new command line preceded by ``--->``.
@@ -640,13 +613,69 @@ You can start a regular IPython session with
 
 at any point in your program.  This will load IPython configuration,
 startup files, and everything, just as if it were a normal IPython session.
+For information on setting configuration options when running IPython from
+python, see :ref:`configure_start_ipython`.
 
-It is also possible to embed an IPython shell in a namespace in your Python code.
-This allows you to evaluate dynamically the state of your code,
-operate with your variables, analyze them, etc. Note however that
-any changes you make to values while in the shell do not propagate back
-to the running code, so it is safe to modify your values because you
-won't break your code in bizarre ways by doing so.
+It is also possible to embed an IPython shell in a namespace in your Python
+code. This allows you to evaluate dynamically the state of your code, operate
+with your variables, analyze them, etc. For example, if you run the following
+code snippet::
+
+  import IPython
+
+  a = 42
+  IPython.embed()
+
+and within the IPython shell, you reassign ``a`` to ``23`` to do further testing of
+some sort, you can then exit::
+
+  >>> IPython.embed()
+  Python 3.12.0 (default, Oct 10 2023, 12:00:00)
+  Type 'copyright', 'credits' or 'license' for more information
+  IPython 9.0.0 -- An enhanced Interactive Python. Type '?' for help.
+
+  In [1]: a = 23
+
+  In [2]: exit()
+
+Once you exit and print ``a``, the value 23 will be shown::
+
+
+  In: print(a)
+  23
+
+It's important to note that the code run in the embedded IPython shell will
+*not* change the state of your code and variables, **unless** the shell is
+contained within the global namespace. In the above example, ``a`` is changed
+because this is true.
+
+To further exemplify this, consider the following example::
+
+  import IPython
+  def do():
+      a = 42
+      print(a)
+      IPython.embed()
+      print(a)
+
+Now if call the function and complete the state changes as we did above, the
+value ``42`` will be printed. Again, this is because it's not in the global
+namespace::
+
+  do()
+
+Running a file with the above code can lead to the following session::
+
+  >>> do()
+  42
+  Python 3.12.0 (default, Oct 10 2023, 12:00:00)
+  Type 'copyright', 'credits' or 'license' for more information
+  IPython 9.0.0 -- An enhanced Interactive Python. Type '?' for help.
+
+  In [1]: a = 23
+
+  In [2]: exit()
+  42
 
 .. note::
 
@@ -674,9 +703,14 @@ your Python programs for this to work (detailed examples follow later)::
 
     embed() # this call anywhere in your program will start IPython
 
-You can also embed an IPython *kernel*, for use with qtconsole, etc. via
-``IPython.embed_kernel()``. This should function work the same way, but you can
-connect an external frontend (``ipython qtconsole`` or ``ipython console``),
+You can also embed an IPython *kernel*, for use with qtconsole, etc. via::
+
+    from ipykernel.embed import embed_kernel
+
+    embed_kernel()
+
+This should work the same way, but you can connect an external frontend
+(``jupyter qtconsole`` or ``jupyter console``),
 rather than interacting with it in the terminal.
 
 You can run embedded instances even in code which is itself being run at
@@ -691,7 +725,7 @@ them separately, for example with different options for data
 presentation. If you close and open the same instance multiple times,
 its prompt counters simply continue from each execution to the next.
 
-Please look at the docstrings in the :mod:`~IPython.frontend.terminal.embed` 
+Please look at the docstrings in the :mod:`~IPython.terminal.embed`
 module for more details on the use of this system.
 
 The following sample file illustrating how to use the embedding
@@ -724,6 +758,130 @@ how to control where pdb will stop execution first.
 For more information on the use of the pdb debugger, see :ref:`debugger-commands`
 in the Python documentation.
 
+IPython extends the debugger with a few useful additions, like coloring of
+tracebacks. The debugger will adopt the color scheme selected for IPython.
+
+The ``where`` command has also been extended to take as argument the number of
+context line to show. This allows to a many line of context on shallow stack trace:
+
+.. code::
+
+    In [5]: def foo(x):
+    ...:     1
+    ...:     2
+    ...:     3
+    ...:     return 1/x+foo(x-1)
+    ...:     5
+    ...:     6
+    ...:     7
+    ...:
+
+    In[6]: foo(1)
+    # ...
+    ipdb> where 8
+    <ipython-input-6-9e45007b2b59>(1)<module>
+    ----> 1 foo(1)
+
+    <ipython-input-5-7baadc3d1465>(5)foo()
+        1 def foo(x):
+        2     1
+        3     2
+        4     3
+    ----> 5     return 1/x+foo(x-1)
+        6     5
+        7     6
+        8     7
+
+    > <ipython-input-5-7baadc3d1465>(5)foo()
+        1 def foo(x):
+        2     1
+        3     2
+        4     3
+    ----> 5     return 1/x+foo(x-1)
+        6     5
+        7     6
+        8     7
+
+
+And less context on shallower Stack Trace:
+
+.. code::
+
+    ipdb> where 1
+    <ipython-input-13-afa180a57233>(1)<module>
+    ----> 1 foo(7)
+
+    <ipython-input-5-7baadc3d1465>(5)foo()
+    ----> 5     return 1/x+foo(x-1)
+
+    <ipython-input-5-7baadc3d1465>(5)foo()
+    ----> 5     return 1/x+foo(x-1)
+
+    <ipython-input-5-7baadc3d1465>(5)foo()
+    ----> 5     return 1/x+foo(x-1)
+
+    <ipython-input-5-7baadc3d1465>(5)foo()
+    ----> 5     return 1/x+foo(x-1)
+
+Module Ignoring Commands
+------------------------
+
+IPython's debugger provides commands to ignore specific modules when navigating
+through stack frames. This is particularly useful when debugging applications
+that use frameworks or libraries where you want to skip over their internal
+code and focus on your application logic.
+
+The module ignoring system supports wildcard patterns using Python's ``fnmatch``
+syntax, allowing you to ignore groups of related modules with a single pattern.
+
+ignore_module <module_name>
+++++++++++++++++++++++++++++
+
+Add a module to the list of modules to skip when navigating frames. When a module
+is ignored, the debugger will automatically skip over frames from that module when
+using the ``next``, ``step``, ``continue``, ``up`` and ``down`` commands.
+
+**Usage:**
+
+.. code::
+
+    ipdb> ignore_module threading
+    ipdb> ignore_module __main__
+    ipdb> ignore_module asyncio.*      # Ignore all asyncio submodules
+    ipdb> ignore_module *.tests        # Ignore all test modules
+    ipdb> ignore_module django.*       # Ignore all django modules
+    ipdb> ignore_module  # List currently ignored modules
+    Currently ignored modules: ['__main__', 'asyncio.*', 'django.*', 'threading']
+
+**Wildcard Pattern Examples:**
+
+- ``asyncio.*`` - Matches ``asyncio.tasks``, ``asyncio.events``, etc.
+- ``*.tests`` - Matches ``myapp.tests``, ``utils.tests``, etc.
+- ``test_*`` - Matches ``test_models``, ``test_views``, etc.
+- ``django.*`` - Matches all Django framework modules
+- ``*pytest*`` - Matches any module containing "pytest"
+
+**Common use cases:**
+
+- Ignore framework code (e.g., ``django.*``, ``flask.*``, ``asyncio.*``)
+- Skip standard library modules (e.g., ``threading``, ``multiprocessing``, ``logging.*``)
+- Hide main module frames (``__main__``) to focus on function implementations
+- Skip test framework internals (``*pytest*``, ``unittest.*``)
+
+unignore_module <module_name>
++++++++++++++++++++++++++++++
+
+Remove a module from the list of modules to skip when navigating frames. This
+allows the debugger to step into frames from the specified module again.
+
+**Usage:**
+
+.. code::
+
+    ipdb> unignore_module threading
+    ipdb> unignore_module asyncio.*    # Remove the pattern
+    ipdb> unignore_module  # List currently ignored modules
+    Currently ignored modules: ['__main__']
 
 Post-mortem debugging
 ---------------------
@@ -746,12 +904,13 @@ put the following lines toward the top of your 'main' routine::
     import sys
     from IPython.core import ultratb
     sys.excepthook = ultratb.FormattedTB(mode='Verbose',
-    color_scheme='Linux', call_pdb=1)
+    theme_name='linux', call_pdb=1)
 
-The mode keyword can be either 'Verbose' or 'Plain', giving either very
-detailed or normal tracebacks respectively. The color_scheme keyword can
-be one of 'NoColor', 'Linux' (default) or 'LightBG'. These are the same
-options which can be set in IPython with ``--colors`` and ``--xmode``.
+The mode keyword can be 'Plain', 'Context', 'Verbose' or 'Minimal', giving
+increasingly detailed tracebacks. The theme_name keyword can be the name of
+any IPython theme, e.g. 'nocolor', 'linux' (default), 'lightbg' or 'neutral'.
+These are the same options which can be set in IPython with ``--theme`` and
+the :magic:`xmode` magic.
 
 This will give any of your programs detailed, colored tracebacks with
 automatic invocation of pdb.
@@ -777,7 +936,7 @@ standard Python tutorial::
     In [4]: >>> while b < 10:
        ...:     ...     print(b)
        ...:     ...     a, b = b, a+b
-       ...:     
+       ...:
     1
     1
     2
@@ -790,7 +949,7 @@ And pasting from IPython sessions works equally well::
     In [1]: In [5]: def f(x):
        ...:        ...:     "A simple function"
        ...:        ...:     return x**2
-       ...:    ...: 
+       ...:    ...:
 
     In [2]: f(3)
     Out[2]: 9
@@ -800,20 +959,10 @@ And pasting from IPython sessions works equally well::
 GUI event loop support
 ======================
 
-.. versionadded:: 0.11
-    The ``%gui`` magic and :mod:`IPython.lib.inputhook`.
-
 IPython has excellent support for working interactively with Graphical User
-Interface (GUI) toolkits, such as wxPython, PyQt4/PySide, PyGTK and Tk. This is
-implemented using Python's builtin ``PyOSInputHook`` hook. This implementation
-is extremely robust compared to our previous thread-based version. The
-advantages of this are:
-
-* GUIs can be enabled and disabled dynamically at runtime.
-* The active GUI can be switched dynamically at runtime.
-* In some cases, multiple GUIs can run simultaneously with no problems.
-* There is a developer API in :mod:`IPython.lib.inputhook` for customizing 
-  all of these things.
+Interface (GUI) toolkits, such as wxPython, PyQt/PySide, PyGTK and Tk. This is
+implemented by running the toolkit's event loop while IPython is waiting for
+input.
 
 For users, enabling GUI event loop integration is simple.  You simple use the
 :magic:`gui` magic as follows::
@@ -821,14 +970,15 @@ For users, enabling GUI event loop integration is simple.  You simple use the
     %gui [GUINAME]
 
 With no arguments, ``%gui`` removes all GUI support.  Valid ``GUINAME``
-arguments are ``wx``, ``qt``, ``gtk`` and ``tk``.
+arguments include ``wx``, ``qt``, ``qt5``, ``qt6``, ``gtk3`` ``gtk4``, and
+``tk``.
 
 Thus, to use wxPython interactively and create a running :class:`wx.App`
 object, do::
 
     %gui wx
 
-You can also start IPython with an event loop set up using the :option:`--gui`
+You can also start IPython with an event loop set up using the ``--gui``
 flag::
 
     $ ipython --gui=qt
@@ -836,33 +986,17 @@ flag::
 For information on IPython's matplotlib_ integration (and the ``matplotlib``
 mode) see :ref:`this section <matplotlib_support>`.
 
-For developers that want to use IPython's GUI event loop integration in the
-form of a library, these capabilities are exposed in library form in the
-:mod:`IPython.lib.inputhook` and :mod:`IPython.lib.guisupport` modules.
-Interested developers should see the module docstrings for more information,
-but there are a few points that should be mentioned here.
+For developers that want to integrate additional event loops with IPython, see
+:doc:`/config/eventloops`.
 
-First, the ``PyOSInputHook`` approach only works in command line settings 
-where readline is activated.  The integration with various eventloops
-is handled somewhat differently (and more simply) when using the standalone
-kernel, as in the qtconsole and notebook.
-
-Second, when using the ``PyOSInputHook`` approach, a GUI application should
-*not* start its event loop. Instead all of this is handled by the
-``PyOSInputHook``. This means that applications that are meant to be used both
+When running inside IPython with an integrated event loop, a GUI application
+should *not* start its own event loop. This means that applications that are
+meant to be used both
 in IPython and as standalone apps need to have special code to detects how the
 application is being run. We highly recommend using IPython's support for this.
 Since the details vary slightly between toolkits, we point you to the various
-examples in our source directory :file:`examples/Embedding` that demonstrate
-these capabilities.
-
-Third, unlike previous versions of IPython, we no longer "hijack" (replace
-them with no-ops) the event loops. This is done to allow applications that
-actually need to run the real event loops to do so. This is often needed to
-process pending events at critical points.
-
-Finally, we also have a number of examples in our source directory
-:file:`examples/Embedding` that demonstrate these capabilities.
+examples in our source directory :file:`examples/IPython Kernel/gui/` that
+demonstrate these capabilities.
 
 PyQt and PySide
 ---------------
@@ -870,37 +1004,13 @@ PyQt and PySide
 .. attempt at explanation of the complete mess that is Qt support
 
 When you use ``--gui=qt`` or ``--matplotlib=qt``, IPython can work with either
-PyQt4 or PySide.  There are three options for configuration here, because
-PyQt4 has two APIs for QString and QVariant: v1, which is the default on
-Python 2, and the more natural v2, which is the only API supported by PySide.
-v2 is also the default for PyQt4 on Python 3.  IPython's code for the QtConsole
-uses v2, but you can still use any interface in your code, since the
-Qt frontend is in a different process.
+PyQt or PySide.  ``qt`` implies "use the latest version available", and it favors
+PyQt over PySide. To request a specific version, use ``qt5`` or ``qt6``.
 
-The default will be to import PyQt4 without configuration of the APIs, thus
-matching what most applications would expect. It will fall back to PySide if
-PyQt4 is unavailable.
-
-If specified, IPython will respect the environment variable ``QT_API`` used
-by ETS.  ETS 4.0 also works with both PyQt4 and PySide, but it requires
-PyQt4 to use its v2 API.  So if ``QT_API=pyside`` PySide will be used,
-and if ``QT_API=pyqt`` then PyQt4 will be used *with the v2 API* for
-QString and QVariant, so ETS codes like MayaVi will also work with IPython.
-
-If you launch IPython in matplotlib mode with ``ipython --matplotlib=qt``,
-then IPython will ask matplotlib which Qt library to use (only if QT_API is
-*not set*), via the 'backend.qt4' rcParam.  If matplotlib is version 1.0.1 or
-older, then IPython will always use PyQt4 without setting the v2 APIs, since
-neither v2 PyQt nor PySide work.
-
-.. warning::
-
-    Note that this means for ETS 4 to work with PyQt4, ``QT_API`` *must* be set
-    to work with IPython's qt integration, because otherwise PyQt4 will be
-    loaded in an incompatible mode.
-    
-    It also means that you must *not* have ``QT_API`` set if you want to
-    use ``--gui=qt`` with code that requires PyQt4 API v1.
+If specified, IPython will respect the environment variable ``QT_API``. If
+``QT_API`` is not specified and you launch IPython in matplotlib mode with
+``ipython --matplotlib=qt`` then IPython will ask matplotlib which Qt library
+to use. See the matplotlib_ documentation on ``QT_API`` for further details.
 
 
 .. _matplotlib_support:
@@ -910,19 +1020,16 @@ Plotting with matplotlib
 
 matplotlib_ provides high quality 2D and 3D plotting for Python. matplotlib_
 can produce plots on screen using a variety of GUI toolkits, including Tk,
-PyGTK, PyQt4 and wxPython. It also provides a number of commands useful for
+PyGTK, PyQt6 and wxPython. It also provides a number of commands useful for
 scientific computing, all with a syntax compatible with that of the popular
 Matlab program.
 
 To start IPython with matplotlib support, use the ``--matplotlib`` switch. If
 IPython is already running, you can run the :magic:`matplotlib` magic.  If no
 arguments are given, IPython will automatically detect your choice of
-matplotlib backend.  You can also request a specific backend with
-``%matplotlib backend``, where ``backend`` must be one of: 'tk', 'qt', 'wx',
-'gtk', 'osx'.  In the web notebook and Qt console, 'inline' is also a valid
-backend value, which produces static figures inlined inside the application
-window instead of matplotlib's interactive figures that live in separate
-windows.
+matplotlib backend. For information on matplotlib backends see
+:ref:`matplotlib_magic`.
+
 
 .. _interactive_demos:
 

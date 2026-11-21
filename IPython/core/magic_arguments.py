@@ -1,4 +1,4 @@
-''' A decorator-based method of constructing IPython magics with `argparse`
+'''A decorator-based method of constructing IPython magics with `argparse`
 option handling.
 
 New magic functions can be defined like so::
@@ -27,15 +27,47 @@ arguments::
 
     In[1]: %cool?
         %cool [-o OPTION] arg
-        
+
         A really cool magic command.
-        
+
         positional arguments:
           arg                   An integer positional argument.
-        
+
         optional arguments:
           -o OPTION, --option OPTION
                                 An optional argument.
+
+Here is an elaborated example that uses default parameters in `argument` and calls the `args` in the cell magic::
+
+    from IPython.core.magic import register_cell_magic
+    from IPython.core.magic_arguments import (argument, magic_arguments,
+                                            parse_argstring)
+
+
+    @magic_arguments()
+    @argument(
+        "--option",
+        "-o",
+        help=("Add an option here"),
+    )
+    @argument(
+        "--style",
+        "-s",
+        default="foo",
+        help=("Add some style arguments"),
+    )
+    @register_cell_magic
+    def my_cell_magic(line, cell):
+        args = parse_argstring(my_cell_magic, line)
+        print(f"{args.option=}")
+        print(f"{args.style=}")
+        print(f"{cell=}")
+
+In a jupyter notebook, this cell magic can be executed like this::
+
+    %%my_cell_magic -o Hello
+    print("bar")
+    i = 42
 
 Inheritance diagram:
 
@@ -93,14 +125,14 @@ class MagicHelpFormatter(argparse.RawDescriptionHelpFormatter):
                 if not NAME_RE.match(args_string):
                     args_string = "<%s>" % args_string
                 for option_string in action.option_strings:
-                    parts.append('%s %s' % (option_string, args_string))
+                    parts.append('{} {}'.format(option_string, args_string))
 
             return ', '.join(parts)
 
     # Override the default prefix ('usage') to our % magic escape,
     # in a code block.
     def add_usage(self, usage, actions, groups, prefix="::\n\n  %"):
-        super(MagicHelpFormatter, self).add_usage(usage, actions, groups, prefix)
+        super().add_usage(usage, actions, groups, prefix)
 
 class MagicArgumentParser(argparse.ArgumentParser):
     """ An ArgumentParser tweaked for use by IPython magics.
@@ -118,7 +150,7 @@ class MagicArgumentParser(argparse.ArgumentParser):
                  add_help=False):
         if parents is None:
             parents = []
-        super(MagicArgumentParser, self).__init__(prog=prog, usage=usage,
+        super().__init__(prog=prog, usage=usage,
             description=description, epilog=epilog,
             parents=parents, formatter_class=formatter_class,
             prefix_chars=prefix_chars, argument_default=argument_default,
@@ -129,10 +161,12 @@ class MagicArgumentParser(argparse.ArgumentParser):
         """
         raise UsageError(message)
 
-    def parse_argstring(self, argstring):
+    def parse_argstring(self, argstring, *, partial=False):
         """ Split a string into an argument list and parse that argument list.
         """
-        argv = arg_split(argstring)
+        argv = arg_split(argstring, strict=not partial)
+        if partial:
+            return self.parse_known_args(argv)
         return self.parse_args(argv)
 
 
@@ -158,22 +192,21 @@ def construct_parser(magic_func):
     return parser
 
 
-def parse_argstring(magic_func, argstring):
+def parse_argstring(magic_func, argstring, *, partial=False):
     """ Parse the string of arguments for the given magic function.
     """
-    return magic_func.parser.parse_argstring(argstring)
+    return magic_func.parser.parse_argstring(argstring, partial=partial)
 
 
 def real_name(magic_func):
     """ Find the real name of the magic.
     """
     magic_name = magic_func.__name__
-    if magic_name.startswith('magic_'):
-        magic_name = magic_name[len('magic_'):]
+    magic_name = magic_name.removeprefix('magic_')
     return getattr(magic_func, 'argcmd_name', magic_name)
 
 
-class ArgDecorator(object):
+class ArgDecorator:
     """ Base class for decorators to add ArgumentParser information to a method.
     """
 
@@ -219,7 +252,7 @@ class ArgMethodWrapper(ArgDecorator):
 
     """
 
-    _method_name = None
+    _method_name: str
 
     def __init__(self, *args, **kwds):
         self.args = args
@@ -269,7 +302,7 @@ class kwds(ArgDecorator):
         self.kwds = kwds
 
     def __call__(self, func):
-        func = super(kwds, self).__call__(func)
+        func = super().__call__(func)
         func.argcmd_kwds = self.kwds
         return func
 

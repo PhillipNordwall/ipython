@@ -1,4 +1,3 @@
-# encoding: utf-8
 """
 IO related utilities.
 """
@@ -6,80 +5,16 @@ IO related utilities.
 # Copyright (c) IPython Development Team.
 # Distributed under the terms of the Modified BSD License.
 
-from __future__ import print_function
-from __future__ import absolute_import
 
 
-import atexit
-import os
 import sys
-import tempfile
-from warnings import warn
+from pathlib import Path
+
 from .capture import CapturedIO, capture_output
-from .py3compat import string_types, input, PY3
+from io import StringIO
 
 
-class IOStream:
-
-    def __init__(self,stream, fallback=None):
-        if not hasattr(stream,'write') or not hasattr(stream,'flush'):
-            if fallback is not None:
-                stream = fallback
-            else:
-                raise ValueError("fallback required, but not specified")
-        self.stream = stream
-        self._swrite = stream.write
-
-        # clone all methods not overridden:
-        def clone(meth):
-            return not hasattr(self, meth) and not meth.startswith('_')
-        for meth in filter(clone, dir(stream)):
-            setattr(self, meth, getattr(stream, meth))
-
-    def __repr__(self):
-        cls = self.__class__
-        tpl = '{mod}.{cls}({args})'
-        return tpl.format(mod=cls.__module__, cls=cls.__name__, args=self.stream)
-
-    def write(self,data):
-        try:
-            self._swrite(data)
-        except:
-            try:
-                # print handles some unicode issues which may trip a plain
-                # write() call.  Emulate write() by using an empty end
-                # argument.
-                print(data, end='', file=self.stream)
-            except:
-                # if we get here, something is seriously broken.
-                print('ERROR - failed to write data to stream:', self.stream,
-                      file=sys.stderr)
-
-    def writelines(self, lines):
-        if isinstance(lines, string_types):
-            lines = [lines]
-        for line in lines:
-            self.write(line)
-
-    # This class used to have a writeln method, but regular files and streams
-    # in Python don't have this method. We need to keep this completely
-    # compatible so we removed it.
-
-    @property
-    def closed(self):
-        return self.stream.closed
-
-    def close(self):
-        pass
-
-# setup stdin/stdout/stderr to sys.stdin/sys.stdout/sys.stderr
-devnull = open(os.devnull, 'w') 
-atexit.register(devnull.close)
-stdin = IOStream(sys.stdin, fallback=devnull)
-stdout = IOStream(sys.stdout, fallback=devnull)
-stderr = IOStream(sys.stderr, fallback=devnull)
-
-class Tee(object):
+class Tee:
     """A class to duplicate an output stream to stdout/err.
 
     This works in a manner very similar to the Unix 'tee' command.
@@ -90,30 +25,30 @@ class Tee(object):
     # Inspired by:
     # http://mail.python.org/pipermail/python-list/2007-May/442737.html
 
-    def __init__(self, file_or_name, mode="w", channel='stdout'):
+    def __init__(self, file_or_name: str | StringIO, mode: str="w", channel: str='stdout'):
         """Construct a new Tee object.
 
         Parameters
         ----------
         file_or_name : filename or open filehandle (writable)
-          File that will be duplicated
-
+            File that will be duplicated
         mode : optional, valid mode for open().
-          If a filename was give, open with this mode.
-
+            If a filename was give, open with this mode.
         channel : str, one of ['stdout', 'stderr']
         """
+        self._closed = True
         if channel not in ['stdout', 'stderr']:
             raise ValueError('Invalid channel spec %s' % channel)
 
         if hasattr(file_or_name, 'write') and hasattr(file_or_name, 'seek'):
             self.file = file_or_name
         else:
-            self.file = open(file_or_name, mode)
+            encoding = None if "b" in mode else "utf-8"
+            self.file = open(file_or_name, mode, encoding=encoding)
         self.channel = channel
         self.ostream = getattr(sys, channel)
         setattr(sys, channel, self)
-        self._closed = False
+        self._closed = False  # fully initialized, mark as open
 
     def close(self):
         """Close the file and restore the channel."""
@@ -137,6 +72,8 @@ class Tee(object):
         if not self._closed:
             self.close()
 
+    def isatty(self):
+        return False
 
 def ask_yes_no(prompt, default=None, interrupt=None):
     """Asks a question and returns a boolean (y/n) answer.
@@ -161,6 +98,7 @@ def ask_yes_no(prompt, default=None, interrupt=None):
         except KeyboardInterrupt:
             if interrupt:
                 ans = interrupt
+            print("\r")
         except EOFError:
             if default in answers.keys():
                 ans = default
@@ -171,57 +109,24 @@ def ask_yes_no(prompt, default=None, interrupt=None):
     return answers[ans]
 
 
-def temp_pyfile(src, ext='.py'):
+def temp_pyfile(src: str, ext: str='.py') -> str:
     """Make a temporary python file, return filename and filehandle.
 
     Parameters
     ----------
     src : string or list of strings (no need for ending newlines if list)
-      Source code to be written to the file.
-
+        Source code to be written to the file.
     ext : optional, string
-      Extension for the generated file.
+        Extension for the generated file.
 
     Returns
     -------
     (filename, open filehandle)
-      It is the caller's responsibility to close the open file and unlink it.
+        It is the caller's responsibility to close the open file and unlink it.
     """
+    import tempfile
     fname = tempfile.mkstemp(ext)[1]
-    f = open(fname,'w')
-    f.write(src)
-    f.flush()
-    return fname, f
-
-def atomic_writing(*args, **kwargs):
-    """DEPRECATED: moved to notebook.services.contents.fileio"""
-    warn("IPython.utils.io.atomic_writing has moved to notebook.services.contents.fileio")
-    from notebook.services.contents.fileio import atomic_writing
-    return atomic_writing(*args, **kwargs)
-
-def raw_print(*args, **kw):
-    """Raw print to sys.__stdout__, otherwise identical interface to print()."""
-
-    print(*args, sep=kw.get('sep', ' '), end=kw.get('end', '\n'),
-          file=sys.__stdout__)
-    sys.__stdout__.flush()
-
-
-def raw_print_err(*args, **kw):
-    """Raw print to sys.__stderr__, otherwise identical interface to print()."""
-
-    print(*args, sep=kw.get('sep', ' '), end=kw.get('end', '\n'),
-          file=sys.__stderr__)
-    sys.__stderr__.flush()
-
-
-# Short aliases for quick debugging, do NOT use these in production code.
-rprint = raw_print
-rprinte = raw_print_err
-
-
-def unicode_std_stream(stream='stdout'):
-    """DEPRECATED, moved to nbconvert.utils.io"""
-    warn("IPython.utils.io.unicode_std_stream has moved to nbconvert.utils.io")
-    from nbconvert.utils.io import unicode_std_stream
-    return unicode_std_stream(stream)
+    with open(Path(fname), "w", encoding="utf-8") as f:
+        f.write(src)
+        f.flush()
+    return fname

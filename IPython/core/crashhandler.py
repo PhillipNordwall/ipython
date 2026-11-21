@@ -1,4 +1,3 @@
-# encoding: utf-8
 """sys.excepthook for IPython itself, leaves a detailed report on disk.
 
 Authors:
@@ -18,17 +17,29 @@ Authors:
 #-----------------------------------------------------------------------------
 # Imports
 #-----------------------------------------------------------------------------
-from __future__ import print_function
 
-import os
+from __future__ import annotations
+
 import sys
 import traceback
 from pprint import pformat
+from pathlib import Path
+
+import builtins as builtin_mod
+
+from typing import TYPE_CHECKING
 
 from IPython.core import ultratb
 from IPython.core.release import author_email
 from IPython.utils.sysinfo import sys_info
-from IPython.utils.py3compat import input, getcwd
+
+from IPython.core.release import __version__ as version
+
+import types
+
+if TYPE_CHECKING:
+    # avoid a circular import: application imports crashhandler at module load
+    from IPython.core.application import Application
 
 #-----------------------------------------------------------------------------
 # Code
@@ -54,12 +65,22 @@ with the subject '{app_name} Crash Report'.
 If you want to do it now, the following command will work (under Unix):
 mail -s '{app_name} Crash Report' {contact_email} < {crash_report_fname}
 
+In your email, please also include information about:
+- The operating system under which the crash happened: Linux, macOS, Windows,
+  other, and which exact version (for example: Ubuntu 16.04.3, macOS 10.13.2,
+  Windows 10 Pro), and whether it is 32-bit or 64-bit;
+- How {app_name} was installed: using pip or conda, from GitHub, as part of
+  a Docker container, or other, providing more detail if possible;
+- How to reproduce the crash: what exact sequence of instructions can one
+  input to get the same crash? Ideally, find a minimal yet complete sequence
+  of instructions that yields the crash.
+
 To ensure accurate tracking of this issue, please file a report about it at:
 {bug_tracker}
 """
 
 _lite_message_template = """
-If you suspect this is an IPython bug, please report it at:
+If you suspect this is an IPython {version} bug, please report it at:
     https://github.com/ipython/ipython/issues
 or send an email to the mailing list at {email}
 
@@ -71,7 +92,7 @@ Extra-detailed tracebacks for bug-reporting purposes can be enabled via:
 """
 
 
-class CrashHandler(object):
+class CrashHandler:
     """Customizable crash handlers for IPython applications.
 
     Instances of this class provide a :meth:`__call__` method which can be
@@ -82,35 +103,42 @@ class CrashHandler(object):
 
     message_template = _default_message_template
     section_sep = '\n\n'+'*'*75+'\n\n'
+    info: dict[str, str | None]
 
-    def __init__(self, app, contact_name=None, contact_email=None,
-                 bug_tracker=None, show_crash_traceback=True, call_pdb=False):
+    def __init__(
+        self,
+        app: Application,
+        contact_name: str | None = None,
+        contact_email: str | None = None,
+        bug_tracker: str | None = None,
+        show_crash_traceback: bool = True,
+        call_pdb: bool = False,
+    ):
         """Create a new crash handler
 
         Parameters
         ----------
-        app :  Application
+        app : Application
             A running :class:`Application` instance, which will be queried at
             crash time for internal information.
-
         contact_name : str
             A string with the name of the person to contact.
-
         contact_email : str
             A string with the email address of the contact.
-
         bug_tracker : str
             A string with the URL for your project's bug tracker.
-
         show_crash_traceback : bool
             If false, don't print the crash traceback on stderr, only generate
             the on-disk report
+        call_pdb
+            Whether to call pdb on crash
 
-        Non-argument instance attributes:
-
+        Attributes
+        ----------
         These instances contain some non-argument attributes which allow for
         further customization of the crash handler's behavior. Please see the
         source for further details.
+
         """
         self.crash_report_fname = "Crash_report_%s.txt" % app.name
         self.app = app
@@ -123,34 +151,36 @@ class CrashHandler(object):
                     bug_tracker = bug_tracker,
                     crash_report_fname = self.crash_report_fname)
 
-
-    def __call__(self, etype, evalue, etb):
+    def __call__(
+        self,
+        etype: type[BaseException],
+        evalue: BaseException,
+        etb: types.TracebackType,
+    ) -> None:
         """Handle an exception, call for compatible with sys.excepthook"""
-        
+
         # do not allow the crash handler to be called twice without reinstalling it
         # this prevents unlikely errors in the crash handling from entering an
         # infinite loop.
         sys.excepthook = sys.__excepthook__
-        
-        # Report tracebacks shouldn't use color in general (safer for users)
-        color_scheme = 'NoColor'
 
         # Use this ONLY for developer debugging (keep commented out for release)
-        #color_scheme = 'Linux'   # dbg
-        try:
-            rptdir = self.app.ipython_dir
-        except:
-            rptdir = getcwd()
-        if rptdir is None or not os.path.isdir(rptdir):
-            rptdir = getcwd()
-        report_name = os.path.join(rptdir,self.crash_report_fname)
+        ipython_dir = getattr(self.app, "ipython_dir", None)
+        if ipython_dir is not None:
+            assert isinstance(ipython_dir, str)
+            rptdir = Path(ipython_dir)
+        else:
+            rptdir = Path.cwd()
+        if not rptdir.is_dir():
+            rptdir = Path.cwd()
+        report_name = rptdir / self.crash_report_fname
         # write the report filename into the instance dict so it can get
         # properly expanded out in the user message template
-        self.crash_report_fname = report_name
-        self.info['crash_report_fname'] = report_name
+        self.crash_report_fname = str(report_name)
+        self.info["crash_report_fname"] = str(report_name)
         TBhandler = ultratb.VerboseTB(
-            color_scheme=color_scheme,
-            long_header=1,
+            theme_name="nocolor",
+            long_header=True,
             call_pdb=self.call_pdb,
         )
         if self.call_pdb:
@@ -165,21 +195,22 @@ class CrashHandler(object):
 
         # and generate a complete report on disk
         try:
-            report = open(report_name,'w')
-        except:
+            report = open(report_name, "w", encoding="utf-8")
+        except OSError:
             print('Could not create crash report on disk.', file=sys.stderr)
             return
 
-        # Inform user on stderr of what happened
-        print('\n'+'*'*70+'\n', file=sys.stderr)
-        print(self.message_template.format(**self.info), file=sys.stderr)
+        with report:
+            # Inform user on stderr of what happened
+            print('\n'+'*'*70+'\n', file=sys.stderr)
+            print(self.message_template.format(**self.info), file=sys.stderr)
 
-        # Construct report on disk
-        report.write(self.make_report(traceback))
-        report.close()
-        input("Hit <Enter> to quit (your terminal may close):")
+            # Construct report on disk
+            report.write(self.make_report(str(traceback)))
 
-    def make_report(self,traceback):
+        builtin_mod.input("Hit <Enter> to quit (your terminal may close):")
+
+    def make_report(self, traceback: str) -> str:
         """Return a string containing a crash report."""
 
         sec_sep = self.section_sep
@@ -191,20 +222,22 @@ class CrashHandler(object):
         try:
             config = pformat(self.app.config)
             rpt_add(sec_sep)
-            rpt_add('Application name: %s\n\n' % self.app_name)
-            rpt_add('Current user configuration structure:\n\n')
+            rpt_add("Application name: %s\n\n" % self.app.name)
+            rpt_add("Current user configuration structure:\n\n")
             rpt_add(config)
-        except:
+        except Exception:
             pass
         rpt_add(sec_sep+'Crash traceback:\n\n' + traceback)
 
         return ''.join(report)
 
 
-def crash_handler_lite(etype, evalue, tb):
+def crash_handler_lite(
+    etype: type[BaseException], evalue: BaseException, tb: types.TracebackType
+) -> None:
     """a light excepthook, adding a small message to the usual traceback"""
     traceback.print_exception(etype, evalue, tb)
-    
+
     from IPython.core.interactiveshell import InteractiveShell
     if InteractiveShell.initialized():
         # we are in a Shell environment, give %magic example
@@ -212,5 +245,4 @@ def crash_handler_lite(etype, evalue, tb):
     else:
         # we are not in a shell, show generic config
         config = "c."
-    print(_lite_message_template.format(email=author_email, config=config), file=sys.stderr)
-
+    print(_lite_message_template.format(email=author_email, config=config, version=version), file=sys.stderr)

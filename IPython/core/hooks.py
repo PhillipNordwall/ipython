@@ -19,7 +19,7 @@ example, you could use a startup file like this::
 
     def calljed(self,filename, linenum):
         "My editor hook calls the jed editor directly."
-        print "Calling my own editor, jed ..."
+        print("Calling my own editor, jed ...")
         if os.system('jed +%d %s' % (linenum,filename)) != 0:
             raise TryNext()
 
@@ -35,31 +35,47 @@ example, you could use a startup file like this::
 #  the file COPYING, distributed as part of this software.
 #*****************************************************************************
 
+from __future__ import annotations
+
+from typing import Any
+from collections.abc import Callable
+
 import os
-import subprocess
 import sys
 
-from IPython.core.error import TryNext
+from .error import TryNext
 
 # List here all the default hooks.  For now it's just the editor functions
 # but over time we'll move here all the public API for user-accessible things.
 
-__all__ = ['editor', 'fix_error_editor', 'synchronize_with_editor',
-           'shutdown_hook', 'late_startup_hook',
-           'show_in_pager','pre_prompt_hook',
-           'pre_run_code_hook', 'clipboard_get']
+__all__ = [
+    "editor",
+    "synchronize_with_editor",
+    "show_in_pager",
+    "clipboard_get",
+]
 
-deprecated = {'pre_run_code_hook': "a callback for the 'pre_execute' or 'pre_run_cell' event",
-              'late_startup_hook': "a callback for the 'shell_initialized' event",
-              'shutdown_hook': "the atexit module",
-             }
+
+def _quote_if_needed(path):
+    """Wrap path in double quotes if it contains spaces and isn't already quoted."""
+    if " " in path and not (path.startswith('"') and path.endswith('"')):
+        return '"%s"' % path
+    return path
+
 
 def editor(self, filename, linenum=None, wait=True):
     """Open the default editor at the given filename and linenumber.
 
     This is IPython's default editor hook, you can use it as an example to
     write your own modified one.  To set your own editor function as the
-    new editor hook, call ip.set_hook('editor',yourfunc)."""
+    new editor hook, call ip.set_hook('editor',yourfunc).
+
+    Notes
+    -----
+    `filename` is always passed in raw/unquoted form. Any quoting or
+    escaping needed to safely build a shell command is the responsibility
+    of the hook implementation, not the caller.
+    """
 
     # IPython configures a default editor at startup by reading $EDITOR from
     # the environment, and falling back on vi (unix) or notepad (win32).
@@ -72,38 +88,16 @@ def editor(self, filename, linenum=None, wait=True):
         linemark = '+%d' % int(linenum)
 
     # Enclose in quotes if necessary and legal
-    if ' ' in editor and os.path.isfile(editor) and editor[0] != '"':
-        editor = '"%s"' % editor
+    if os.path.isfile(editor):
+        editor = _quote_if_needed(editor)
+    filename = _quote_if_needed(filename)
 
     # Call the actual editor
-    proc = subprocess.Popen('%s %s %s' % (editor, linemark, filename),
+    import subprocess
+    proc = subprocess.Popen('{} {} {}'.format(editor, linemark, filename),
                             shell=True)
     if wait and proc.wait() != 0:
         raise TryNext()
-
-import tempfile
-def fix_error_editor(self,filename,linenum,column,msg):
-    """Open the editor at the given filename, linenumber, column and
-    show an error message. This is used for correcting syntax errors.
-    The current implementation only has special support for the VIM editor,
-    and falls back on the 'editor' hook if VIM is not used.
-
-    Call ip.set_hook('fix_error_editor',youfunc) to use your own function,
-    """
-    def vim_quickfix_file():
-        t = tempfile.NamedTemporaryFile()
-        t.write('%s:%d:%d:%s\n' % (filename,linenum,column,msg))
-        t.flush()
-        return t
-    if os.path.basename(self.editor) != 'vim':
-        self.hooks.editor(filename,linenum)
-        return
-    t = vim_quickfix_file()
-    try:
-        if os.system('vim --cmd "set errorformat=%f:%l:%c:%m" -q ' + t.name):
-            raise TryNext()
-    finally:
-        t.close()
 
 
 def synchronize_with_editor(self, filename, linenum, column):
@@ -117,14 +111,14 @@ class CommandChainDispatcher:
     priority), execute normally via f() calling mechanism.
 
     """
-    def __init__(self,commands=None):
+    def __init__(self, commands: list[tuple[int, Callable[..., Any]]] | None = None) -> None:
         if commands is None:
-            self.chain = []
+            self.chain: list[tuple[int, Callable[..., Any]]] = []
         else:
             self.chain = commands
 
 
-    def __call__(self,*args, **kw):
+    def __call__(self, *args: Any, **kw: Any) -> Any:
         """ Command chain is called just like normal func.
 
         This will call all funcs in chain with the same args as were given to
@@ -132,7 +126,7 @@ class CommandChainDispatcher:
         TryNext"""
         last_exc = TryNext()
         for prio,cmd in self.chain:
-            #print "prio",prio,"cmd",cmd #dbg
+            # print("prio",prio,"cmd",cmd)  # dbg
             try:
                 return cmd(*args, **kw)
             except TryNext as exc:
@@ -140,10 +134,10 @@ class CommandChainDispatcher:
         # if no function will accept it, raise TryNext up to the caller
         raise last_exc
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.chain)
 
-    def add(self, func, priority=0):
+    def add(self, func: Callable[..., Any], priority: int = 0) -> None:
         """ Add a func to the cmd chain with given priority """
         self.chain.append((priority, func))
         self.chain.sort(key=lambda x: x[0])
@@ -156,57 +150,28 @@ class CommandChainDispatcher:
         return iter(self.chain)
 
 
-def shutdown_hook(self):
-    """ default shutdown hook
-
-    Typically, shotdown hooks should raise TryNext so all shutdown ops are done
-    """
-
-    #print "default shutdown hook ok" # dbg
-    return
-
-
-def late_startup_hook(self):
-    """ Executed after ipython has been constructed and configured
-
-    """
-    #print "default startup hook ok" # dbg
-
-
 def show_in_pager(self, data, start, screen_lines):
     """ Run a string through pager """
     # raising TryNext here will use the default paging functionality
     raise TryNext
 
 
-def pre_prompt_hook(self):
-    """ Run before displaying the next prompt
-
-    Use this e.g. to display output from asynchronous operations (in order
-    to not mess up text entry)
-    """
-
-    return None
-
-
-def pre_run_code_hook(self):
-    """ Executed before running the (prefiltered) code in IPython """
-    return None
-
 
 def clipboard_get(self):
     """ Get text from the clipboard.
     """
-    from IPython.lib.clipboard import (
-        osx_clipboard_get, tkinter_clipboard_get,
-        win32_clipboard_get
+    from ..lib.clipboard import (
+        osx_clipboard_get,
+        tkinter_clipboard_get,
+        win32_clipboard_get,
+        wayland_clipboard_get,
     )
     if sys.platform == 'win32':
         chain = [win32_clipboard_get, tkinter_clipboard_get]
     elif sys.platform == 'darwin':
         chain = [osx_clipboard_get, tkinter_clipboard_get]
     else:
-        chain = [tkinter_clipboard_get]
+        chain = [wayland_clipboard_get, tkinter_clipboard_get]
     dispatcher = CommandChainDispatcher()
     for func in chain:
         dispatcher.add(func)

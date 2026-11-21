@@ -1,4 +1,3 @@
-# encoding: utf-8
 """A dict subclass that supports attribute style access.
 
 Authors:
@@ -6,6 +5,8 @@ Authors:
 * Fernando Perez (original)
 * Brian Granger (refactoring to a dict subclass)
 """
+from __future__ import annotations
+from typing import Any
 
 #-----------------------------------------------------------------------------
 #  Copyright (C) 2008-2011  The IPython Development Team
@@ -43,14 +44,13 @@ class Struct(dict):
 
         Parameters
         ----------
-        args : dict, Struct
+        *args : dict, Struct
             Initialize with one dict or Struct
-        kw : dict
+        **kw : dict
             Initialize with key, value pairs.
 
         Examples
         --------
-
         >>> s = Struct(a=10,b=30)
         >>> s.a
         10
@@ -63,12 +63,11 @@ class Struct(dict):
         object.__setattr__(self, '_allownew', True)
         dict.__init__(self, *args, **kw)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: Any):
         """Set an item with check for allownew.
 
         Examples
         --------
-
         >>> s = Struct()
         >>> s['a'] = 10
         >>> s.allow_new_attr(False)
@@ -87,7 +86,7 @@ class Struct(dict):
                 "can't create new attribute %s when allow_new_attr(False)" % key)
         dict.__setitem__(self, key, value)
 
-    def __setattr__(self, key, value):
+    def __setattr__(self, key: str, value: Any):
         """Set an attr with protection of class members.
 
         This calls :meth:`self.__setitem__` but convert :exc:`KeyError` to
@@ -95,7 +94,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s = Struct()
         >>> s.a = 10
         >>> s.a
@@ -120,9 +118,9 @@ class Struct(dict):
         try:
             self.__setitem__(key, value)
         except KeyError as e:
-            raise AttributeError(e)
+            raise AttributeError(e) from e
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str) -> Any:
         """Get an attr by calling :meth:`dict.__getitem__`.
 
         Like :meth:`__setattr__`, this method converts :exc:`KeyError` to
@@ -130,12 +128,11 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s = Struct(a=10)
         >>> s.a
         10
         >>> type(s.get)
-        <... 'builtin_function_or_method'>
+        <...method'>
         >>> try:
         ...     s.b
         ... except AttributeError:
@@ -145,8 +142,8 @@ class Struct(dict):
         """
         try:
             result = self[key]
-        except KeyError:
-            raise AttributeError(key)
+        except KeyError as e:
+            raise AttributeError(key) from e
         else:
             return result
 
@@ -155,7 +152,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s = Struct(a=10,b=30)
         >>> s2 = Struct(a=20,c=40)
         >>> s += s2
@@ -170,7 +166,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s1 = Struct(a=10,b=30)
         >>> s2 = Struct(a=20,c=40)
         >>> s = s1 + s2
@@ -186,7 +181,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s1 = Struct(a=10,b=30)
         >>> s2 = Struct(a=40)
         >>> s = s1 - s2
@@ -202,7 +196,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s1 = Struct(a=10,b=30)
         >>> s2 = Struct(a=40)
         >>> s1 -= s2
@@ -236,7 +229,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s = Struct(a=10,b=30)
         >>> s2 = s.copy()
         >>> type(s2) is Struct
@@ -251,7 +243,6 @@ class Struct(dict):
 
         Examples
         --------
-
         >>> s = Struct(a=10)
         >>> s.hasattr('a')
         True
@@ -284,7 +275,7 @@ class Struct(dict):
 
         Parameters
         ----------
-        __loc_data : dict, Struct
+        __loc_data__ : dict, Struct
             The data to merge into self
         __conflict_solve : dict
             The conflict policy dict.  The keys are binary functions used to
@@ -292,12 +283,11 @@ class Struct(dict):
             the keys the conflict resolution function applies to.  Instead of
             a list of strings a space separated string can be used, like
             'a b c'.
-        kw : dict
+        **kw : dict
             Additional key, value pairs to merge in
 
         Notes
         -----
-
         The `__conflict_solve` dict is a dictionary of binary functions which will be used to
         solve key conflicts.  Here is an example::
 
@@ -338,7 +328,6 @@ class Struct(dict):
 
         Examples
         --------
-
         This show the default policy:
 
         >>> s = Struct(a=10,b=30)
@@ -388,4 +377,3 @@ class Struct(dict):
                 self[key] = data_dict[key]
             else:
                 self[key] = conflict_solve[key](self[key],data_dict[key])
-

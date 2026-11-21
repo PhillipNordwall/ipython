@@ -5,6 +5,9 @@ _build
 docs/man/*.gz
 docs/source/api/generated
 docs/source/config/options
+docs/source/config/shortcuts/*.csv
+docs/source/config/shortcuts/table.tsv
+docs/source/savefig
 docs/source/interactive/magics-generated.txt
 docs/gh-pages
 jupyter_notebook/notebook/static/mathjax
@@ -19,5 +22,23 @@ __pycache__
 .DS_Store
 \#*#
 .#*
+.cache
 .coverage
 *.swp
+.pytest_cache
+.python-version
+.venv*/
+venv*/
+.mypy_cache/
+
+# jetbrains ide stuff
+*.iml
+.idea/
+
+# vscode ide stuff
+*.code-workspace
+.history
+.vscode
+
+# MonkeyType runtime type trace database
+monkeytype.sqlite3

@@ -22,7 +22,6 @@ Authors
 - Fernando Perez <Fernando.Perez@berkeley.edu>
 """
 
-from __future__ import absolute_import
 
 #-----------------------------------------------------------------------------
 #  Copyright (C) 2009-2011  The IPython Development Team
@@ -37,8 +36,11 @@ from __future__ import absolute_import
 
 # Stdlib
 import re
+import sys
 import unittest
+import builtins
 from doctest import DocTestFinder, DocTestRunner, TestResults
+from IPython.terminal.interactiveshell import InteractiveShell
 
 #-----------------------------------------------------------------------------
 # Classes and functions
@@ -49,23 +51,30 @@ def count_failures(runner):
 
     Code modeled after the summarize() method in doctest.
     """
-    return [TestResults(f, t) for f, t in runner._name2ft.values() if f > 0 ]
+    if sys.version_info < (3, 13):
+        return [TestResults(f, t) for f, t in runner._name2ft.values() if f > 0]
+    else:
+        return [
+            TestResults(failure, try_)
+            for failure, try_, skip in runner._stats.values()
+            if failure > 0
+        ]
 
 
-class IPython2PythonConverter(object):
+class IPython2PythonConverter:
     """Convert IPython 'syntax' to valid Python.
 
     Eventually this code may grow to be the full IPython syntax conversion
-    implementation, but for now it only does prompt convertion."""
-    
+    implementation, but for now it only does prompt conversion."""
+
     def __init__(self):
         self.rps1 = re.compile(r'In\ \[\d+\]: ')
         self.rps2 = re.compile(r'\ \ \ \.\.\.+: ')
         self.rout = re.compile(r'Out\[\d+\]: \s*?\n?')
         self.pyps1 = '>>> '
         self.pyps2 = '... '
-        self.rpyps1 = re.compile ('(\s*%s)(.*)$' % self.pyps1)
-        self.rpyps2 = re.compile ('(\s*%s)(.*)$' % self.pyps2)
+        self.rpyps1 = re.compile (r'(\s*%s)(.*)$' % self.pyps1)
+        self.rpyps2 = re.compile (r'(\s*%s)(.*)$' % self.pyps2)
 
     def __call__(self, ds):
         """Convert IPython prompts to python ones in a string."""
@@ -79,7 +88,7 @@ class IPython2PythonConverter(object):
         dnew = self.rps1.sub(pyps1, dnew)
         dnew = self.rps2.sub(pyps2, dnew)
         dnew = self.rout.sub(pyout, dnew)
-        ip = globalipapp.get_ipython()
+        ip = InteractiveShell.instance()
 
         # Convert input IPython source into valid Python.
         out = []
@@ -97,23 +106,23 @@ class IPython2PythonConverter(object):
                 prompt, text = mps2.groups()
                 newline(prompt+ip.prefilter(text, True))
                 continue
-            
+
             newline(line)
         newline('')  # ensure a closing newline, needed by doctest
-        #print "PYSRC:", '\n'.join(out)  # dbg
+        # print("PYSRC:", '\n'.join(out))  # dbg
         return '\n'.join(out)
 
     #return dnew
 
 
-class Doc2UnitTester(object):
+class Doc2UnitTester:
     """Class whose instances act as a decorator for docstring testing.
 
     In practice we're only likely to need one instance ever, made below (though
     no attempt is made at turning it into a singleton, there is no need for
     that).
     """
-    def __init__(self, verbose=False):
+    def __init__(self, verbose: bool=False):
         """New decorator.
 
         Parameters
@@ -128,7 +137,7 @@ class Doc2UnitTester(object):
 
     def __call__(self, func):
         """Use as a decorator: doctest a function's docstring as a unittest.
-        
+
         This version runs normal doctests, but the idea is to make it later run
         ipython syntax instead."""
 
@@ -147,18 +156,19 @@ class Doc2UnitTester(object):
             def test(self):
                 # Make a new runner per function to be tested
                 runner = DocTestRunner(verbose=d2u.verbose)
-                map(runner.run, d2u.finder.find(func, func.__name__))
+                for the_test in d2u.finder.find(func, func.__name__):
+                    runner.run(the_test)
                 failed = count_failures(runner)
                 if failed:
                     # Since we only looked at a single function's docstring,
                     # failed should contain at most one item.  More than that
                     # is a case we can't handle and should error out on
                     if len(failed) > 1:
-                        err = "Invalid number of test results:" % failed
+                        err = "Invalid number of test results: %s" % failed
                         raise ValueError(err)
                     # Report a normal failure.
                     self.fail('failed doctests: %s' % str(failed[0]))
-                    
+
         # Rename it so test reports have the original signature.
         Tester.__name__ = func.__name__
         return Tester
@@ -171,7 +181,7 @@ def ipdocstring(func):
         func.__doc__ = ip2py(func.__doc__)
     return func
 
-        
+
 # Make an instance of the classes for public use
 ipdoctest = Doc2UnitTester()
 ip2py = IPython2PythonConverter()

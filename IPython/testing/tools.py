@@ -5,57 +5,40 @@ Authors
 - Fernando Perez <Fernando.Perez@berkeley.edu>
 """
 
-from __future__ import absolute_import
 
-#-----------------------------------------------------------------------------
-#  Copyright (C) 2009 The IPython Development Team
-#
-#  Distributed under the terms of the BSD License.  The full license is in
-#  the file COPYING, distributed as part of this software.
-#-----------------------------------------------------------------------------
+# Copyright (c) IPython Development Team.
+# Distributed under the terms of the Modified BSD License.
 
-#-----------------------------------------------------------------------------
-# Imports
-#-----------------------------------------------------------------------------
+from __future__ import annotations
 
 import os
+from pathlib import Path
 import re
 import sys
 import tempfile
+import unittest
 
 from contextlib import contextmanager
 from io import StringIO
 from subprocess import Popen, PIPE
-
-try:
-    # These tools are used by parts of the runtime, so we make the nose
-    # dependency optional at this point.  Nose is a hard dependency to run the
-    # test suite, but NOT to use ipython itself.
-    import nose.tools as nt
-    has_nose = True
-except ImportError:
-    has_nose = False
+from types import TracebackType
+from unittest.mock import patch
 
 from traitlets.config.loader import Config
 from IPython.utils.process import get_output_error_code
-from IPython.utils.text import list_strings
 from IPython.utils.io import temp_pyfile, Tee
-from IPython.utils import py3compat
 from IPython.utils.encoding import DEFAULT_ENCODING
 
 from . import decorators as dec
 from . import skipdoctest
 
-#-----------------------------------------------------------------------------
-# Functions and classes
-#-----------------------------------------------------------------------------
 
 # The docstring for full_path doctests differently on win32 (different path
 # separator) so just skip the doctest there.  The example remains informative.
 doctest_deco = skipdoctest.skip_doctest if sys.platform == 'win32' else dec.null_deco
 
 @doctest_deco
-def full_path(startPath,files):
+def full_path(startPath: str, files: list[str]) -> list[str]:
     """Make full paths for all the listed files, based on startPath.
 
     Only the base part of startPath is kept, since this routine is typically
@@ -68,7 +51,7 @@ def full_path(startPath,files):
       Initial path to use as the base for the results.  This path is split
       using os.path.split() and only its first component is kept.
 
-    files : string or list
+    files : list
       One or more files.
 
     Examples
@@ -80,18 +63,13 @@ def full_path(startPath,files):
     >>> full_path('/foo',['a.txt','b.txt'])
     ['/a.txt', '/b.txt']
 
-    If a single file is given, the output is still a list::
-
-        >>> full_path('/foo','a.txt')
-        ['/a.txt']
     """
-
-    files = list_strings(files)
+    assert isinstance(files, list)
     base = os.path.split(startPath)[0]
     return [ os.path.join(base,f) for f in files ]
 
 
-def parse_test_output(txt):
+def parse_test_output(txt: str) -> tuple[int, int]:
     """Parse the output of a test run and return errors, failures.
 
     Parameters
@@ -99,7 +77,7 @@ def parse_test_output(txt):
     txt : str
       Text output of a test run, assumed to contain a line of one of the
       following forms::
-      
+
         'FAILED (errors=1)'
         'FAILED (failures=1)'
         'FAILED (errors=1, failures=1)'
@@ -137,29 +115,33 @@ def parse_test_output(txt):
 parse_test_output.__test__ = False
 
 
-def default_argv():
+def default_argv() -> list[str]:
     """Return a valid default argv for creating testing instances of ipython"""
 
-    return ['--quick', # so no config file is loaded
-            # Other defaults to minimize side effects on stdout
-            '--colors=NoColor', '--no-term-title','--no-banner',
-            '--autocall=0']
+    return [
+        "--quick",  # so no config file is loaded
+        # Other defaults to minimize side effects on stdout
+        "--colors=nocolor",
+        "--no-term-title",
+        "--no-banner",
+        "--autocall=0",
+    ]
 
 
-def default_config():
+def default_config() -> Config:
     """Return a config object with good defaults for testing."""
     config = Config()
-    config.TerminalInteractiveShell.colors = 'NoColor'
-    config.TerminalTerminalInteractiveShell.term_title = False,
+    config.TerminalInteractiveShell.colors = "nocolor"
+    config.TerminalTerminalInteractiveShell.term_title = (False,)
     config.TerminalInteractiveShell.autocall = 0
-    f = tempfile.NamedTemporaryFile(suffix=u'test_hist.sqlite', delete=False)
-    config.HistoryManager.hist_file = f.name
+    f = tempfile.NamedTemporaryFile(suffix="test_hist.sqlite", delete=False)
+    config.HistoryManager.hist_file = Path(f.name)
     f.close()
     config.HistoryManager.db_cache_size = 10000
     return config
 
 
-def get_ipython_cmd(as_string=False):
+def get_ipython_cmd(as_string: bool=False) -> list[str]:
     """
     Return appropriate IPython command line name. By default, this will return
     a list that can be used with subprocess.Popen, for example, but passing
@@ -177,7 +159,7 @@ def get_ipython_cmd(as_string=False):
 
     return ipython_cmd
 
-def ipexec(fname, options=None, commands=()):
+def ipexec(fname: str, options: list[str] | None=None, commands: tuple[str, ...]=()) -> tuple[str, str]:
     """Utility to call 'ipython filename'.
 
     Starts IPython with a minimal and safe configuration to make startup as fast
@@ -187,7 +169,7 @@ def ipexec(fname, options=None, commands=()):
 
     Parameters
     ----------
-    fname : str
+    fname : str, Path
       Name of file to be executed (should have .py or .ipy extension).
 
     options : optional, list
@@ -198,37 +180,36 @@ def ipexec(fname, options=None, commands=()):
 
     Returns
     -------
-    (stdout, stderr) of ipython subprocess.
+    ``(stdout, stderr)`` of ipython subprocess.
     """
-    if options is None: options = []
+    __tracebackhide__ = True
 
-    # For these subprocess calls, eliminate all prompt printing so we only see
-    # output from script execution
-    prompt_opts = [ '--PromptManager.in_template=""',
-                    '--PromptManager.in2_template=""',
-                    '--PromptManager.out_template=""'
-    ]
-    cmdargs = default_argv() + prompt_opts + options
+    if options is None:
+        options = []
+
+    cmdargs = default_argv() + options
 
     test_dir = os.path.dirname(__file__)
 
     ipython_cmd = get_ipython_cmd()
     # Absolute path for filename
     full_fname = os.path.join(test_dir, fname)
-    full_cmd = ipython_cmd + cmdargs + [full_fname]
+    full_cmd = ipython_cmd + cmdargs + ['--', full_fname]
     env = os.environ.copy()
     # FIXME: ignore all warnings in ipexec while we have shims
     # should we keep suppressing warnings here, even after removing shims?
     env['PYTHONWARNINGS'] = 'ignore'
     # env.pop('PYTHONWARNINGS', None)  # Avoid extraneous warnings appearing on stderr
+    # Prevent coloring under PyCharm ("\x1b[0m" at the end of the stdout)
+    env.pop("PYCHARM_HOSTED", None)
     for k, v in env.items():
         # Debug a bizarre failure we've seen on Windows:
         # TypeError: environment can only contain strings
         if not isinstance(v, str):
             print(k, v)
     p = Popen(full_cmd, stdout=PIPE, stderr=PIPE, stdin=PIPE, env=env)
-    out, err = p.communicate(input=py3compat.str_to_bytes('\n'.join(commands)) or None)
-    out, err = py3compat.bytes_to_str(out), py3compat.bytes_to_str(err)
+    out, err = p.communicate(input=('\n'.join(commands).encode(DEFAULT_ENCODING, "replace")) or None)
+    out, err = out.decode(DEFAULT_ENCODING, "replace"), err.decode(DEFAULT_ENCODING, "replace")
     # `import readline` causes 'ESC[?1034h' to be output sometimes,
     # so strip that out before doing comparisons
     if out:
@@ -236,8 +217,8 @@ def ipexec(fname, options=None, commands=()):
     return out, err
 
 
-def ipexec_validate(fname, expected_out, expected_err='',
-                    options=None, commands=()):
+def ipexec_validate(fname: str, expected_out: str, expected_err: str='',
+                    options: list[str] | None=None, commands: tuple[str, ...]=()):
     """Utility to call 'ipython filename' and validate output/error.
 
     This function raises an AssertionError if the validation fails.
@@ -246,7 +227,7 @@ def ipexec_validate(fname, expected_out, expected_err='',
 
     Parameters
     ----------
-    fname : str
+    fname : str, Path
       Name of the file to be executed (should have .py or .ipy extension).
 
     expected_out : str
@@ -262,85 +243,62 @@ def ipexec_validate(fname, expected_out, expected_err='',
     -------
     None
     """
-
-    import nose.tools as nt
+    __tracebackhide__ = True
 
     out, err = ipexec(fname, options, commands)
-    #print 'OUT', out  # dbg
-    #print 'ERR', err  # dbg
-    # If there are any errors, we must check those befor stdout, as they may be
+    # print('OUT', out)  # dbg
+    # print('ERR', err)  # dbg
+    # If there are any errors, we must check those before stdout, as they may be
     # more informative than simply having an empty stdout.
     if err:
         if expected_err:
-            nt.assert_equal("\n".join(err.strip().splitlines()), "\n".join(expected_err.strip().splitlines()))
+            assert "\n".join(err.strip().splitlines()) == "\n".join(
+                expected_err.strip().splitlines()
+            )
         else:
             raise ValueError('Running file %r produced error: %r' %
                              (fname, err))
     # If no errors or output on stderr was expected, match stdout
-    nt.assert_equal("\n".join(out.strip().splitlines()), "\n".join(expected_out.strip().splitlines()))
+    assert "\n".join(out.strip().splitlines()) == "\n".join(
+        expected_out.strip().splitlines()
+    )
 
 
-class TempFileMixin(object):
+class TempFileMixin(unittest.TestCase):
     """Utility class to create temporary Python/IPython files.
 
     Meant as a mixin class for test cases."""
 
-    def mktmp(self, src, ext='.py'):
+    def mktmp(self, src: str, ext: str='.py'):
         """Make a valid python temp file."""
-        fname, f = temp_pyfile(src, ext)
-        self.tmpfile = f
+        fname = temp_pyfile(src, ext)
+        if not hasattr(self, 'tmps'):
+            self.tmps=[]
+        self.tmps.append(fname)
         self.fname = fname
 
     def tearDown(self):
-        if hasattr(self, 'tmpfile'):
-            # If the tmpfile wasn't made because of skipped tests, like in
-            # win32, there's nothing to cleanup.
-            self.tmpfile.close()
-            try:
-                os.unlink(self.fname)
-            except:
-                # On Windows, even though we close the file, we still can't
-                # delete it.  I have no clue why
-                pass
+        # If the tmpfile wasn't made because of skipped tests, like in
+        # win32, there's nothing to cleanup.
+        if hasattr(self, 'tmps'):
+            for fname in self.tmps:
+                # If the tmpfile wasn't made because of skipped tests, like in
+                # win32, there's nothing to cleanup.
+                try:
+                    os.unlink(fname)
+                except OSError:
+                    # On Windows, even though we close the file, we still can't
+                    # delete it.  I have no clue why
+                    pass
 
-pair_fail_msg = ("Testing {0}\n\n"
-                "In:\n"
-                "  {1!r}\n"
-                "Expected:\n"
-                "  {2!r}\n"
-                "Got:\n"
-                "  {3!r}\n")
-def check_pairs(func, pairs):
-    """Utility function for the common case of checking a function with a
-    sequence of input/output pairs.
+    def __enter__(self):
+        return self
 
-    Parameters
-    ----------
-    func : callable
-      The function to be tested. Should accept a single argument.
-    pairs : iterable
-      A list of (input, expected_output) tuples.
-
-    Returns
-    -------
-    None. Raises an AssertionError if any output does not match the expected
-    value.
-    """
-    name = getattr(func, "func_name", getattr(func, "__name__", "<unknown>"))
-    for inp, expected in pairs:
-        out = func(inp)
-        assert out == expected, pair_fail_msg.format(name, inp, expected, out)
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.tearDown()
 
 
-if py3compat.PY3:
-    MyStringIO = StringIO
-else:
-    # In Python 2, stdout/stderr can have either bytes or unicode written to them,
-    # so we need a class that can handle both.
-    class MyStringIO(StringIO):
-        def write(self, s):
-            s = py3compat.cast_unicode(s, encoding=DEFAULT_ENCODING)
-            super(MyStringIO, self).write(s)
+MyStringIO = StringIO
 
 _re_type = type(re.compile(r''))
 
@@ -350,32 +308,34 @@ notprinted_msg = """Did not find {0!r} in printed output (on {1}):
 -------
 """
 
-class AssertPrints(object):
+class AssertPrints:
     """Context manager for testing that code prints certain text.
-    
+
     Examples
     --------
     >>> with AssertPrints("abc", suppress=False):
     ...     print("abcd")
     ...     print("def")
-    ... 
+    ...
     abcd
     def
     """
-    def __init__(self, s, channel='stdout', suppress=True):
+    def __init__(self, s: str, channel: str='stdout', suppress: bool=True):
         self.s = s
-        if isinstance(self.s, (py3compat.string_types, _re_type)):
+        if isinstance(self.s, (str, _re_type)):
             self.s = [self.s]
         self.channel = channel
         self.suppress = suppress
-    
+
     def __enter__(self):
         self.orig_stream = getattr(sys, self.channel)
         self.buffer = MyStringIO()
         self.tee = Tee(self.buffer, channel=self.channel)
         setattr(sys, self.channel, self.buffer if self.suppress else self.tee)
-    
-    def __exit__(self, etype, value, traceback):
+
+    def __exit__(self, etype: type[BaseException] | None, value: BaseException | None, traceback: TracebackType | None):
+        __tracebackhide__ = True
+
         try:
             if value is not None:
                 # If an error was raised, don't check anything else
@@ -400,9 +360,11 @@ printed_msg = """Found {0!r} in printed output (on {1}):
 
 class AssertNotPrints(AssertPrints):
     """Context manager for checking that certain output *isn't* produced.
-    
+
     Counterpart of AssertPrints"""
     def __exit__(self, etype, value, traceback):
+        __tracebackhide__ = True
+
         try:
             if value is not None:
                 # If an error was raised, don't check anything else
@@ -423,35 +385,42 @@ class AssertNotPrints(AssertPrints):
             self.tee.close()
 
 @contextmanager
-def mute_warn():
-    from IPython.utils import warn
-    save_warn = warn.warn
-    warn.warn = lambda *a, **kw: None
-    try:
-        yield
-    finally:
-        warn.warn = save_warn
-
-@contextmanager
 def make_tempfile(name):
-    """ Create an empty, named, temporary file for the duration of the context.
-    """
-    f = open(name, 'w')
-    f.close()
+    """Create an empty, named, temporary file for the duration of the context."""
+    open(name, "w", encoding="utf-8").close()
     try:
         yield
     finally:
         os.unlink(name)
 
+def fake_input(inputs):
+    """Temporarily replace the input() function to return the given values
+
+    Use as a context manager:
+
+    with fake_input(['result1', 'result2']):
+        ...
+
+    Values are returned in order. If input() is called again after the last value
+    was used, EOFError is raised.
+    """
+    it = iter(inputs)
+    def mock_input(prompt=''):
+        try:
+            return next(it)
+        except StopIteration as e:
+            raise EOFError('No more inputs given') from e
+
+    return patch('builtins.input', mock_input)
 
 def help_output_test(subcommand=''):
     """test that `ipython [subcommand] -h` works"""
     cmd = get_ipython_cmd() + [subcommand, '-h']
     out, err, rc = get_output_error_code(cmd)
-    nt.assert_equal(rc, 0, err)
-    nt.assert_not_in("Traceback", err)
-    nt.assert_in("Options", out)
-    nt.assert_in("--help-all", out)
+    assert rc == 0, err
+    assert "Traceback" not in err
+    assert "Options" in out
+    assert "--help-all" in out
     return out, err
 
 
@@ -459,9 +428,8 @@ def help_all_output_test(subcommand=''):
     """test that `ipython [subcommand] --help-all` works"""
     cmd = get_ipython_cmd() + [subcommand, '--help-all']
     out, err, rc = get_output_error_code(cmd)
-    nt.assert_equal(rc, 0, err)
-    nt.assert_not_in("Traceback", err)
-    nt.assert_in("Options", out)
-    nt.assert_in("Class parameters", out)
+    assert rc == 0, err
+    assert "Traceback" not in err
+    assert "Options" in out
+    assert "Class" in out
     return out, err
-

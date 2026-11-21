@@ -11,11 +11,12 @@
 #-----------------------------------------------------------------------------
 # Imports
 #-----------------------------------------------------------------------------
-from __future__ import print_function
 
 # Stdlib
 import os
+import sys
 from io import open as io_open
+import fnmatch
 
 # Our own packages
 from IPython.core.error import StdinNotImplementedError
@@ -24,7 +25,6 @@ from IPython.core.magic_arguments import (argument, magic_arguments,
                                           parse_argstring)
 from IPython.testing.skipdoctest import skip_doctest
 from IPython.utils import io
-from IPython.utils.py3compat import cast_unicode_py2
 
 #-----------------------------------------------------------------------------
 # Magics class implementation
@@ -62,7 +62,7 @@ class HistoryMagics(Magics):
         source before executing it (things like magics or aliases are turned
         into function calls, for example). With this option, you'll see the
         native history instead of the user-entered version: '%%cd /' will be
-        seen as 'get_ipython().magic("%%cd /")' instead of '%%cd /'.
+        seen as 'get_ipython().run_line_magic("cd", "/")' instead of '%%cd /'.
         """)
     @argument(
         '-f', dest='filename',
@@ -73,9 +73,20 @@ class HistoryMagics(Magics):
         the command 'history -f FILENAME' from the IPython Notebook
         interface will replace FILENAME even if it already exists *without*
         confirmation.
-        """)
+        """,
+    )
     @argument(
-        '-g', dest='pattern', nargs='*', default=None,
+        "-y",
+        dest="overwrite",
+        help="yes, overwrite filename even if exists",
+        action="store_true",
+        default=None,
+    )
+    @argument(
+        "-g",
+        dest="pattern",
+        nargs="*",
+        default=None,
         help="""
         treat the arg as a glob pattern to search for in (full) history.
         This includes the saved history (almost all commands ever written).
@@ -105,19 +116,25 @@ class HistoryMagics(Magics):
 
         By default, all input history from the current session is displayed.
         Ranges of history can be indicated using the syntax:
-        
+
         ``4``
             Line 4, current session
         ``4-6``
             Lines 4-6, current session
+        ``4-``
+            Lines 4 onward (to end), current session
         ``243/1-5``
             Lines 1-5, session 243
+        ``~2/``
+            All lines of session 2 before current
+        ``~4/4-``
+            Lines 4 onward (to end), session 4 before current
         ``~2/7``
             Line 7, session 2 before current
         ``~8/1-~6/5``
             From the first line of 8 sessions ago, to the fifth line of 6
             sessions ago.
-        
+
         Multiple ranges can be entered, separated by spaces
 
         The same syntax is used by %macro, %save, %edit, %rerun
@@ -128,7 +145,7 @@ class HistoryMagics(Magics):
 
           In [6]: %history -n 4-6
           4:a = 12
-          5:print a**2
+          5:print(a**2)
           6:%history -n 4-6
 
         """
@@ -142,22 +159,29 @@ class HistoryMagics(Magics):
             """Helper function to format line numbers properly."""
             if session in (0, history_manager.session_number):
                 return str(line)
-            return "%s/%s" % (session, line)
+            return "{}/{}".format(session, line)
 
         # Check if output to specific file was requested.
         outfname = args.filename
         if not outfname:
-            outfile = io.stdout  # default
+            outfile = sys.stdout  # default
             # We don't want to close stdout at the end!
             close_at_end = False
         else:
-            if os.path.exists(outfname):
-                try:
+            outfname = os.path.expanduser(outfname)
+            if args.overwrite is True:
+                ans = True
+            elif os.path.exists(outfname):
+                ans = True
+                if sys.stdin.isatty():
                     ans = io.ask_yes_no("File %r exists. Overwrite?" % outfname)
-                except StdinNotImplementedError:
-                    ans = True
+                else:
+                    try:
+                        ans = io.ask_yes_no("File %r exists. Overwrite?" % outfname)
+                    except StdinNotImplementedError:
+                        ans = True
                 if not ans:
-                    print('Aborting.')
+                    print("Aborting.")
                     return
                 print("Overwriting file.")
             outfile = io_open(outfname, 'w', encoding='utf-8')
@@ -171,7 +195,8 @@ class HistoryMagics(Magics):
         pattern = None
         limit = None if args.limit is _unspecified else args.limit
 
-        if args.pattern is not None:
+        range_pattern = False
+        if args.pattern is not None and not args.range:
             if args.pattern:
                 pattern = "*" + " ".join(args.pattern) + "*"
             else:
@@ -183,11 +208,12 @@ class HistoryMagics(Magics):
             n = 10 if limit is None else limit
             hist = history_manager.get_tail(n, raw=raw, output=get_output)
         else:
-            if args.range:      # Get history by ranges
-                hist = history_manager.get_range_by_str(" ".join(args.range),
-                                                        raw, get_output)
-            else:               # Just get history for the current session
-                hist = history_manager.get_range(raw=raw, output=get_output)
+            if args.pattern:
+                range_pattern = "*" + " ".join(args.pattern) + "*"
+                print_nums = True
+            hist = history_manager.get_range_by_str(
+                " ".join(args.range), raw, get_output
+            )
 
         # We could be displaying the entire history, so let's not try to pull
         # it into a list in memory. Anything that needs more space will just
@@ -201,20 +227,23 @@ class HistoryMagics(Magics):
             # into an editor.
             if get_output:
                 inline, output = inline
+            if range_pattern:
+                if not fnmatch.fnmatch(inline, range_pattern):
+                    continue
             inline = inline.expandtabs(4).rstrip()
 
             multiline = "\n" in inline
             line_sep = '\n' if multiline else ' '
             if print_nums:
-                print(u'%s:%s' % (_format_lineno(session, lineno).rjust(width),
-                        line_sep),  file=outfile, end=u'')
+                print('{}:{}'.format(_format_lineno(session, lineno).rjust(width),
+                        line_sep),  file=outfile, end='')
             if pyprompts:
-                print(u">>> ", end=u"", file=outfile)
+                print(">>> ", end="", file=outfile)
                 if multiline:
                     inline = "\n... ".join(inline.splitlines()) + "\n..."
             print(inline, file=outfile)
             if get_output and output:
-                print(cast_unicode_py2(output), file=outfile)
+                print(output, file=outfile)
 
         if close_at_end:
             outfile.close()
@@ -275,6 +304,7 @@ class HistoryMagics(Magics):
                 return
         else:
             self.shell.set_next_input(cmd.rstrip())
+            return
         print("Couldn't evaluate or find in history:", arg)
 
     @line_magic
@@ -293,7 +323,19 @@ class HistoryMagics(Magics):
         """
         opts, args = self.parse_options(parameter_s, 'l:g:', mode='string')
         if "l" in opts:         # Last n lines
-            n = int(opts['l'])
+            try:
+                n = int(opts["l"])
+            except ValueError:
+                print("Number of lines must be an integer")
+                return
+
+            if n == 0:
+                print("Requested 0 last lines - nothing to run")
+                return
+            elif n < 0:
+                print("Number of lines to rerun cannot be negative")
+                return
+
             hist = self.shell.history_manager.get_tail(n)
         elif "g" in opts:       # Search
             p = "*"+opts['g']+"*"

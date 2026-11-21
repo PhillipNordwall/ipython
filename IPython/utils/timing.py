@@ -1,4 +1,3 @@
-# encoding: utf-8
 """
 Utilities for timing code execution.
 """
@@ -14,9 +13,11 @@ Utilities for timing code execution.
 # Imports
 #-----------------------------------------------------------------------------
 
-import time
+from __future__ import annotations
 
-from .py3compat import xrange
+import time
+from typing import Any
+from collections.abc import Callable
 
 #-----------------------------------------------------------------------------
 # Code
@@ -25,6 +26,11 @@ from .py3compat import xrange
 # If possible (Unix), use the resource module instead of time.clock()
 try:
     import resource
+except ModuleNotFoundError:
+    resource = None  # type: ignore [assignment]
+
+# Some implementations (like jyputerlite) don't have getrusage
+if resource is not None and hasattr(resource, "getrusage"):
     def clocku():
         """clocku() -> floating point number
 
@@ -53,23 +59,30 @@ try:
         u,s = resource.getrusage(resource.RUSAGE_SELF)[:2]
         return u+s
 
-    def clock2():
+    def clock2() -> tuple[float, float]:
         """clock2() -> (t_user,t_system)
 
         Similar to clock(), but return a tuple of user/system times."""
         return resource.getrusage(resource.RUSAGE_SELF)[:2]
-except ImportError:
+
+else:
     # There is no distinction of user/system time under windows, so we just use
-    # time.clock() for everything...
-    clocku = clocks = clock = time.clock
-    def clock2():
+    # time.process_time() for everything...
+    clocku = clocks = clock = time.process_time
+
+    def clock2() -> tuple[float, float]:
         """Under windows, system CPU time can't be measured.
 
-        This just returns clock() and zero."""
-        return time.clock(),0.0
+        This just returns process_time() and zero."""
+        return time.process_time(), 0.0
 
-    
-def timings_out(reps,func,*args,**kw):
+
+def timings_out(
+    reps: int,
+    func: Callable[..., Any],
+    *args: Any,
+    **kw: Any,
+) -> tuple[float, float, Any]:
     """timings_out(reps,func,*args,**kw) -> (t_total,t_per_call,output)
 
     Execute a function reps times, return a tuple with the elapsed total
@@ -89,7 +102,7 @@ def timings_out(reps,func,*args,**kw):
         out = func(*args,**kw)
         tot_time = clock()-start
     else:
-        rng = xrange(reps-1) # the last time is executed separately to store output
+        rng = range(reps-1) # the last time is executed separately to store output
         start = clock()
         for dummy in rng: func(*args,**kw)
         out = func(*args,**kw)  # one last time
@@ -98,7 +111,12 @@ def timings_out(reps,func,*args,**kw):
     return tot_time,av_time,out
 
 
-def timings(reps,func,*args,**kw):
+def timings(
+    reps: int,
+    func: Callable[..., Any],
+    *args: Any,
+    **kw: Any,
+) -> tuple[float, float]:
     """timings(reps,func,*args,**kw) -> (t_total,t_per_call)
 
     Execute a function reps times, return a tuple with the elapsed total CPU
@@ -108,11 +126,10 @@ def timings(reps,func,*args,**kw):
     return timings_out(reps,func,*args,**kw)[0:2]
 
 
-def timing(func,*args,**kw):
+def timing(func: Callable[..., Any], *args: Any, **kw: Any) -> float:
     """timing(func,*args,**kw) -> t_total
 
     Execute a function once, return the elapsed total CPU time in
     seconds. This is just the first value in timings_out()."""
 
     return timings_out(1,func,*args,**kw)[0]
-

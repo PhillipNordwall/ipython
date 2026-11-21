@@ -2,6 +2,44 @@
  3.x Series
 ============
 
+IPython 3.2.3
+=============
+
+Fixes compatibility with Python 3.4.4.
+
+IPython 3.2.2
+=============
+
+Address vulnerabilities when files have maliciously crafted filenames (CVE-2015-6938),
+or vulnerability when opening text files with malicious binary content (CVE pending).
+
+Users are **strongly** encouraged to upgrade immediately.
+There are also a few small unicode and nbconvert-related fixes.
+
+
+IPython 3.2.1
+=============
+
+IPython 3.2.1 is a small bugfix release, primarily for cross-site security fixes in the notebook.
+Users are **strongly** encouraged to upgrade immediately.
+There are also a few small unicode and nbconvert-related fixes.
+
+
+IPython 3.2
+===========
+
+IPython 3.2 contains important security fixes. Users are **strongly** encouraged to upgrade immediately.
+
+Highlights:
+
+- Address cross-site scripting vulnerabilities CVE-2015-4706, CVE-2015-4707
+- A security improvement that set the secure attribute to login cookie to prevent them to be sent over http
+- Revert the face color of matplotlib axes in the inline backend to not be transparent.
+- Enable mathjax safe mode by default
+- Fix XSS vulnerability in JSON error messages
+- Various widget-related fixes
+
+
 IPython 3.1
 ===========
 
@@ -16,7 +54,7 @@ Highlights:
 - Various focus jumping and scrolling fixes in the notebook.
 - Various message ordering and widget fixes in the notebook.
 - Images in markdown and output are confined to the notebook width.
-  An `.unconfined` CSS class is added to disable this behavior per-image.
+  An ``.unconfined`` CSS class is added to disable this behavior per-image.
   The resize handle on output images is removed.
 - Improved ordering of tooltip content for Python functions, putting the signature at the top.
 - Fix UnicodeErrors when displaying some objects with unicode reprs on Python 2.
@@ -25,9 +63,6 @@ Highlights:
 - Allow setting custom SSL options for the tornado server with ``NotebookApp.ssl_options``,
   and protect against POODLE with default settings by disabling SSLv3.
 - Fix memory leak in the IPython.parallel Controller on Python 3.
-
-
-See :ref:`issues_list_3` for details.
 
 
 Release 3.0
@@ -51,7 +86,7 @@ while Python-specific projects (interactive Python shell, Python kernel, IPython
 will remain under IPython, and be split into a few smaller packages.
 To reflect this, IPython is in a bit of a transition state.
 The logo on the notebook is now the Jupyter logo.
-When installing kernels system-wide, they go in a `jupyter` directory.
+When installing kernels system-wide, they go in a ``jupyter`` directory.
 We are going to do our best to ease this transition for users and developers.
 
 Big changes are ahead.
@@ -120,7 +155,7 @@ Other new features
 
   __ https://pypi.python.org/pypi/cloud
 
-* Added a .ipynb exporter to nbconvert.  It can be used by passing `--to notebook`
+* Added a .ipynb exporter to nbconvert.  It can be used by passing ``--to notebook``
   as a commandline argument to nbconvert.
 
 * New nbconvert preprocessor called :class:`~.ClearOutputPreprocessor`. This
@@ -140,7 +175,7 @@ Other new features
 * ``NotebookApp.webapp_settings`` is deprecated and replaced with
   the more informatively named ``NotebookApp.tornado_settings``.
 
-* Using :magic:`timeit` prints warnings if there is atleast a 4x difference in timings
+* Using :magic:`timeit` prints warnings if there is at least a 4x difference in timings
   between the slowest and fastest runs, since this might meant that the multiple
   runs are not independent of one another.
 
@@ -160,7 +195,7 @@ Other new features
   doing it automatically for every change of the parameter widgets. This should
   be useful for long-running functions.
 
-* The ``%cython`` magic is now part of the Cython module. Use `%load_ext Cython` with a version of Cython >= 0.21 to have access to the magic now.
+* The ``%cython`` magic is now part of the Cython module. Use ``%load_ext Cython`` with a version of Cython >= 0.21 to have access to the magic now.
 
 * The Notebook application now offers integrated terminals on Unix platforms,
   intended for when it is used on a remote server. To enable these, install
@@ -225,8 +260,8 @@ Other new features
 * Enhanced support for :magic:`env` magic.  As before, :magic:`env` with no
   arguments displays all environment variables and values.  Additionally,
   :magic:`env` can be used to get or set individual environment variables. To
-  display an individual value, use the `%env var` syntax. To set a value, use
-  `env var val` or `env var=val`. Python value expansion using `$` works as usual.
+  display an individual value, use the ``%env var`` syntax. To set a value, use
+  ``env var val`` or ``env var=val``. Python value expansion using ``$`` works as usual.
 
 
 Backwards incompatible changes
@@ -236,10 +271,10 @@ Backwards incompatible changes
   Adapters are included, so IPython frontends can still talk to kernels that
   implement protocol version 4.
 
-* The :ref:`notebook format <nbformat>` has been updated from version 3 to version 4.
+* The notebook format has been updated from version 3 to version 4.
   Read-only support for v4 notebooks has been backported to IPython 2.4.
   Notable changes:
-  
+
   * heading cells are removed in favor or markdown headings
   * notebook outputs and output messages are more consistent with each other
   * use :func:`IPython.nbformat.read` and :func:`~IPython.nbformat.write`
@@ -247,37 +282,37 @@ Backwards incompatible changes
     instead of the deprecated :mod:`IPython.nbformat.current` APIs.
 
   You can downgrade a notebook to v3 via ``nbconvert``::
-  
+
       ipython nbconvert --to notebook --nbformat 3 <notebook>
-  
+
   which will create :file:`notebook.v3.ipynb`, a copy of the notebook in v3 format.
 
 * :func:`IPython.core.oinspect.getsource` call specification has changed:
 
-  * `oname` keyword argument has been added for property source formatting
-  * `is_binary` keyword argument has been dropped, passing ``True`` had
-    previously short-circuited the function to return ``None`` unconditionally
+  * ``oname`` keyword argument has been added for property source formatting
+  * ``is_binary`` keyword argument has been dropped, passing :py:data:`True` had
+    previously short-circuited the function to return :py:data:`None` unconditionally
 
 * Removed the octavemagic extension: it is now available as ``oct2py.ipython``.
 
 * Creating PDFs with LaTeX no longer uses a post processor.
-  Use `nbconvert --to pdf` instead of `nbconvert --to latex --post pdf`.
+  Use ``nbconvert --to pdf`` instead of ``nbconvert --to latex --post pdf``.
 
 * Used https://github.com/jdfreder/bootstrap2to3 to migrate the Notebook to Bootstrap 3.
 
   Additional changes:
 
-  - Set `.tab-content .row` `0px;` left and right margin (bootstrap default is `-15px;`)
-  - Removed `height: @btn_mini_height;` from `.list_header>div, .list_item>div` in `tree.less`
-  - Set `#header` div `margin-bottom: 0px;`
-  - Set `#menus` to `float: left;`
-  - Set `#maintoolbar .navbar-text` to `float: none;`
+  - Set ``.tab-content .row`` ``0px;`` left and right margin (bootstrap default is ``-15px;``)
+  - Removed ``height: @btn_mini_height;`` from ``.list_header>div, .list_item>div`` in ``tree.less``
+  - Set ``#header`` div ``margin-bottom: 0px;``
+  - Set ``#menus`` to ``float: left;``
+  - Set ``#maintoolbar .navbar-text`` to ``float: none;``
   - Added no-padding convenience class.
   - Set border of #maintoolbar to 0px
 
-* Accessing the `container` DOM object when displaying javascript has been
-  deprecated in IPython 2.0 in favor of accessing `element`. Starting with
-  IPython 3.0 trying to access `container` will raise an error in browser
+* Accessing the ``container`` DOM object when displaying javascript has been
+  deprecated in IPython 2.0 in favor of accessing ``element``. Starting with
+  IPython 3.0 trying to access ``container`` will raise an error in browser
   javascript console.
 
 * ``IPython.utils.py3compat.open`` was removed: :func:`io.open` provides all
@@ -296,16 +331,16 @@ Backwards incompatible changes
 * :meth:`~.KernelManager.start_kernel` and :meth:`~.KernelManager.format_kernel_cmd`
   no longer accept a ``executable`` parameter. Use the kernelspec machinery instead.
 
-* The widget classes have been renamed from `*Widget` to `*`.  The old names are
+* The widget classes have been renamed from ``*Widget`` to ``*``.  The old names are
   still functional, but are deprecated.  i.e. `IntSliderWidget` has been renamed
   to `IntSlider`.
 * The ContainerWidget was renamed to Box and no longer defaults as a flexible
   box in the web browser.  A new FlexBox widget was added, which allows you to
   use the flexible box model.
 
-* The notebook now uses a single websocket at `/kernels/<kernel-id>/channels` instead of separate
-  `/kernels/<kernel-id>/{shell|iopub|stdin}` channels. Messages on each channel are identified by a
-  `channel` key in the message dict, for both send and recv.
+* The notebook now uses a single websocket at ``/kernels/<kernel-id>/channels`` instead of separate
+  ``/kernels/<kernel-id>/{shell|iopub|stdin}`` channels. Messages on each channel are identified by a
+  ``channel`` key in the message dict, for both send and recv.
 
 
 Content Security Policy
@@ -333,7 +368,7 @@ Example policies::
 Matches embeddings on any subdomain of jupyter.org, so long as they are served
 over SSL.
 
-There is a `report-uri <https://developer.mozilla.org/en-US/docs/Web/Security/CSP/CSP_policy_directives#report-uri>`_ endpoint available for logging CSP violations, located at
+There is a `report-uri <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/report-uri>`_ endpoint available for logging CSP violations, located at
 ``/api/security/csp-report``. To use it, set ``report-uri`` as part of the CSP::
 
     c.NotebookApp.tornado_settings = {

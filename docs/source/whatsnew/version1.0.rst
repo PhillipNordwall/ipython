@@ -22,9 +22,7 @@ and in this development cycle we had:
 - ~4000 commits.
 
 The amount of work included in this release is so large that we can only cover
-here the main highlights; please see our :ref:`detailed release statistics
-<issues_list_100>` for links to every issue and pull request closed on GitHub
-as well as a full list of individual contributors.
+here the main highlights.
 It includes
 
 Reorganization
@@ -72,7 +70,7 @@ We also have added:
 
 
 Which is a *library* function for getting the current IPython instance,
-and will return ``None`` if no IPython instance is running.
+and will return :py:data:`None` if no IPython instance is running.
 This is the official way to check whether your code is called from inside an IPython session.
 If you want to check for IPython without unnecessarily importing IPython,
 use this function:
@@ -135,7 +133,7 @@ Backwards incompatible changes
 - For all kernel managers, the ``sub_channel`` attribute has been renamed to
   ``iopub_channel``.
 - Users on Python versions before 2.6.6, 2.7.1 or 3.2 will now need to call
-  :func:`IPython.utils.doctestreload.doctest_reload` to make doctests run 
+  :func:`IPython.utils.doctestreload.doctest_reload` to make doctests run
   correctly inside IPython. Python releases since those versions are unaffected.
   For details, see :ghpull:`3068` and `Python issue 8048 <http://bugs.python.org/issue8048>`_.
 - The ``InteractiveShell.cache_main_mod()`` method has been removed, and
@@ -163,10 +161,6 @@ To use nbconvert to convert various file formats::
 
 See ``ipython nbconvert --help`` for more information.
 nbconvert depends on `pandoc`_ for many of the translations to and from various formats.
-
-.. seealso::
-
-    :ref:`nbconvert`
 
 .. _pandoc: http://johnmacfarlane.net/pandoc/
 
@@ -279,7 +273,7 @@ whether this tradeoff is appropriate for their application.
 Parallel
 --------
 
-IPython.parallel has had some refactoring as well.  
+IPython.parallel has had some refactoring as well.
 There are many improvements and fixes, but these are the major changes:
 
 - Connections have been simplified. All ports and the serialization in use
@@ -303,4 +297,3 @@ Various fixes, including improved performance with lots of text output,
 and better drag and drop support.
 The initial window size of the qtconsole is now configurable via ``IPythonWidget.width``
 and ``IPythonWidget.height``.
-

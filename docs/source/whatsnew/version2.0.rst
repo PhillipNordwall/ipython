@@ -5,14 +5,16 @@
 Release 2.4
 ===========
 
-January, 2015
+January, 2014
+
+.. note::
+
+    Some of the patches marked for 2.4 were left out of 2.4.0.
+    Please use 2.4.1.
 
 - backport read support for nbformat v4 from IPython 3
-- support for PyQt5
+- support for PyQt5 in the kernel (not QtConsole)
 - support for Pygments 2.0
-
-For more information on what fixes have been backported to 2.4,
-see our :ref:`detailed release info <issues_list_200>`.
 
 
 Release 2.3.1
@@ -22,9 +24,6 @@ November, 2014
 
 - Fix CRCRLF line-ending bug in notebooks on Windows
 
-For more information on what fixes have been backported to 2.3.1,
-see our :ref:`detailed release info <issues_list_200>`.
-
 Release 2.3.0
 =============
 
@@ -33,9 +32,6 @@ October, 2014
 - improve qt5 support
 - prevent notebook data loss with atomic writes
 
-For more information on what fixes have been backported to 2.3,
-see our :ref:`detailed release info <issues_list_200>`.
-
 Release 2.2.0
 =============
 
@@ -43,19 +39,12 @@ August, 2014
 
 - Add CORS configuration
 
-For more information on what fixes have been backported to 2.2,
-see our :ref:`detailed release info <issues_list_200>`.
-
 Release 2.1.0
 =============
 
 May, 2014
 
 IPython 2.1 is the first bugfix release for 2.0.
-For more information on what fixes have been backported to 2.1,
-see our :ref:`detailed release info
-<issues_list_200>`.
-
 
 Release 2.0.0
 =============
@@ -82,9 +71,7 @@ Contribution summary since IPython 1.0 in August, 2013:
 - ~4000 commits
 
 The amount of work included in this release is so large that we can only cover
-here the main highlights; please see our :ref:`detailed release statistics
-<issues_list_200>` for links to every issue and pull request closed on GitHub
-as well as a full list of individual contributors.
+here the main highlights.
 
 New stuff in the IPython notebook
 ---------------------------------
@@ -144,11 +131,11 @@ which can be started from the Help menu.
 Security
 ********
 
-2.0 introduces a :ref:`security model <notebook_security>` for notebooks,
+2.0 introduces a security model for notebooks,
 to prevent untrusted code from executing on users' behalf when notebooks open.
 A quick summary of the model:
 
-- Trust is determined by :ref:`signing notebooks<signing_notebooks>`.
+- Trust is determined by signing notebooks.
 - Untrusted HTML output is sanitized.
 - Untrusted Javascript is never executed.
 - HTML and Javascript in Markdown are never trusted.
@@ -169,8 +156,6 @@ Single codebase Python 3 support
 IPython previously supported Python 3 by running 2to3 during setup. We
 have now switched to a single codebase which runs natively on Python 2.7
 and 3.3.
-
-For notes on how to maintain this, see :doc:`/development/pycompat`.
 
 Selecting matplotlib figure formats
 -----------------------------------
@@ -230,8 +215,7 @@ New IPython console lexer
 -------------------------
 
 The IPython console lexer has been rewritten and now supports tracebacks
-and customized input/output prompts. See the :ref:`new lexer docs <console_lexer>`
-for details.
+and customized input/output prompts.
 
 DisplayFormatter changes
 ------------------------
@@ -336,7 +320,7 @@ Backwards incompatible changes
   Python versions are now 2.7 and 3.3.
 * The Transformer classes have been renamed to Preprocessor in nbconvert and
   their ``call`` methods have been renamed to ``preprocess``.
-* The ``call`` methods of nbconvert post-processsors have been renamed to
+* The ``call`` methods of nbconvert post-processors have been renamed to
   ``postprocess``.
 
 * The module ``IPython.core.fakemodule`` has been removed.

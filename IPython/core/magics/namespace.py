@@ -1,6 +1,5 @@
 """Implementation of namespace-related magic functions.
 """
-from __future__ import print_function
 #-----------------------------------------------------------------------------
 #  Copyright (c) 2012 The IPython Development Team.
 #
@@ -26,7 +25,6 @@ from IPython.testing.skipdoctest import skip_doctest
 from IPython.utils.encoding import DEFAULT_ENCODING
 from IPython.utils.openpy import read_py_file
 from IPython.utils.path import get_py_filename
-from IPython.utils.py3compat import unicode_type
 
 #-----------------------------------------------------------------------------
 # Magic implementation classes
@@ -45,13 +43,13 @@ class NamespaceMagics(Magics):
 
         '%pinfo object' is just a synonym for object? or ?object."""
 
-        #print 'pinfo par: <%s>' % parameter_s  # dbg
+        # print('pinfo par: <%s>' % parameter_s)  # dbg
         # detail_level: 0 -> obj? , 1 -> obj??
         detail_level = 0
         # We need to detect if we got called as 'pinfo pinfo foo', which can
         # happen if the user types 'pinfo foo?' at the cmd line.
         pinfo,qmark1,oname,qmark2 = \
-               re.match('(pinfo )?(\?*)(.*?)(\??$)',parameter_s).groups()
+               re.match(r'(pinfo )?(\?*)(.*?)(\??$)',parameter_s).groups()
         if pinfo or qmark1 or qmark2:
             detail_level = 1
         if "*" in oname:
@@ -118,7 +116,7 @@ class NamespaceMagics(Magics):
         if out == 'not found':
             try:
                 filename = get_py_filename(parameter_s)
-            except IOError as msg:
+            except OSError as msg:
                 print(msg)
                 return
             page.page(self.shell.pycolorize(read_py_file(filename, skip_encoding_cookie=False)))
@@ -176,6 +174,9 @@ class NamespaceMagics(Magics):
           'builtin' and 'user' are the search defaults.  Note that you should
           not use quotes when specifying namespaces.
 
+          -l: List all available object types for object matching. This function
+          can be used without arguments.
+
           'Builtin' contains the python module builtin, 'user' contains all
           user data, 'alias' only contain the shell aliases and no python
           objects, 'internal' contains objects used by IPython.  The
@@ -202,21 +203,24 @@ class NamespaceMagics(Magics):
         Show objects beginning with a single _::
 
           %psearch -a _*         list objects beginning with a single underscore
-        """
-        try:
-            parameter_s.encode('ascii')
-        except UnicodeEncodeError:
-            print('Python identifiers can only contain ascii characters.')
-            return
 
+        List available objects::
+
+          %psearch -l            list all available object types
+        """
         # default namespaces to be searched
         def_search = ['user_local', 'user_global', 'builtin']
 
         # Process options/args
-        opts,args = self.parse_options(parameter_s,'cias:e:',list_all=True)
+        opts,args = self.parse_options(parameter_s,'cias:e:l',list_all=True)
         opt = opts.get
         shell = self.shell
         psearch = shell.inspector.psearch
+
+        # select list object types
+        list_types = False
+        if 'l' in opts:
+            list_types = True
 
         # select case options
         if 'i' in opts:
@@ -228,27 +232,29 @@ class NamespaceMagics(Magics):
 
         # Build list of namespaces to search from user options
         def_search.extend(opt('s',[]))
-        ns_exclude = ns_exclude=opt('e',[])
+        ns_exclude = opt('e',[])
         ns_search = [nm for nm in def_search if nm not in ns_exclude]
 
         # Call the actual search
         try:
             psearch(args,shell.ns_table,ns_search,
-                    show_all=opt('a'),ignore_case=ignore_case)
-        except:
+                    show_all=opt('a'),ignore_case=ignore_case, list_types=list_types)
+        except Exception:
             shell.showtraceback()
 
     @skip_doctest
     @line_magic
     def who_ls(self, parameter_s=''):
-        """Return a sorted list of all interactive variables.
+        """Return a sorted list of interactive variable names.
+
+        Names beginning with an underscore and names hidden by IPython are
+        excluded.
 
         If arguments are given, only variables of types matching these
         arguments are returned.
 
         Examples
         --------
-
         Define two variables and list them with who_ls::
 
           In [1]: alpha = 123
@@ -358,23 +364,30 @@ class NamespaceMagics(Magics):
           - For numpy arrays, a summary with shape, number of
             elements, typecode and size in memory.
 
+          - For DataFrame and Series types: their shape.
+
           - Everything else: a string representation, snipping their middle if
             too long.
 
         Examples
         --------
-
         Define two variables and list them with whos::
 
           In [1]: alpha = 123
 
           In [2]: beta = 'test'
 
-          In [3]: %whos
+          In [3]: df = pd.DataFrame({"a": range(10), "b": range(10,20)})
+
+          In [4]: s = df["a"]
+
+          In [5]: %whos
           Variable   Type        Data/Info
           --------------------------------
           alpha      int         123
           beta       str         test
+          df         DataFrame   Shape: (10, 2)
+          s          Series      Shape: (10, )
         """
 
         varnames = self.who_ls(parameter_s)
@@ -454,16 +467,20 @@ class NamespaceMagics(Magics):
                 else:
                     print(aformat % (vshape, vsize, vdtype, vbytes), end=' ')
                     if vbytes < Mb:
-                        print('(%s kb)' % (vbytes/kb,))
+                        print("({} kb)".format(vbytes / kb))
                     else:
-                        print('(%s Mb)' % (vbytes/Mb,))
+                        print("({} Mb)".format(vbytes / Mb))
+            elif vtype in ["DataFrame", "Series"]:
+                # Useful for DataFrames and Series
+                # Ought to work for both pandas and polars
+                print(f"Shape: {var.shape}")
             else:
                 try:
                     vstr = str(var)
                 except UnicodeEncodeError:
-                    vstr = unicode_type(var).encode(DEFAULT_ENCODING,
-                                               'backslashreplace')
-                except:
+                    vstr = var.encode(DEFAULT_ENCODING,
+                                      'backslashreplace')
+                except Exception:
                     vstr = "<object with id %d (str() failed)>" % id(var)
                 vstr = vstr.replace('\n', '\\n')
                 if len(vstr) < 50:
@@ -480,20 +497,26 @@ class NamespaceMagics(Magics):
 
         Parameters
         ----------
-        -f : force reset without asking for confirmation.
-
-        -s : 'Soft' reset: Only clears your namespace, leaving history intact.
+        -f
+            force reset without asking for confirmation.
+        -s
+            'Soft' reset: Only clears your namespace, leaving history intact.
             References to objects may be kept. By default (without this option),
             we do a 'hard' reset, giving you a new session and removing all
             references to objects from the current session.
+        --aggressive
+            Try to aggressively remove modules from sys.modules ; this
+            may allow you to reimport Python modules that have been updated and
+            pick up changes, but can have unintended consequences.
 
-        in : reset input history
-
-        out : reset output history
-
-        dhist : reset directory history
-
-        array : reset only variables that are NumPy arrays
+        in
+            reset input history
+        out
+            reset output history
+        dhist
+            reset directory history
+        array
+            reset only variables that are NumPy arrays
 
         See Also
         --------
@@ -508,12 +531,12 @@ class NamespaceMagics(Magics):
           In [7]: a
           Out[7]: 1
 
-          In [8]: 'a' in _ip.user_ns
+          In [8]: 'a' in get_ipython().user_ns
           Out[8]: True
 
           In [9]: %reset -f
 
-          In [1]: 'a' in _ip.user_ns
+          In [1]: 'a' in get_ipython().user_ns
           Out[1]: False
 
           In [2]: %reset -f in
@@ -529,8 +552,8 @@ class NamespaceMagics(Magics):
         such as the ipython notebook interface, will reset the namespace
         without confirmation.
         """
-        opts, args = self.parse_options(parameter_s,'sf', mode='list')
-        if 'f' in opts:
+        opts, args = self.parse_options(parameter_s, "sf", "aggressive", mode="list")
+        if "f" in opts:
             ans = True
         else:
             try:
@@ -548,7 +571,7 @@ class NamespaceMagics(Magics):
             for i in self.who_ls():
                 del(user_ns[i])
         elif len(args) == 0:                # Hard reset
-            self.shell.reset(new_session = False)
+            self.shell.reset(new_session=False, aggressive=("aggressive" in opts))
 
         # reset in/out/dhist/array: previously extensinions/clearcmd.py
         ip = self.shell
@@ -566,14 +589,14 @@ class NamespaceMagics(Magics):
                 for n in range(1, pc):
                     key = '_i'+repr(n)
                     user_ns.pop(key,None)
-                user_ns.update(dict(_i=u'',_ii=u'',_iii=u''))
+                user_ns.update(dict(_i='',_ii='',_iii=''))
                 hm = ip.history_manager
                 # don't delete these, as %save and %macro depending on the
                 # length of these lists to be preserved
                 hm.input_hist_parsed[:] = [''] * pc
                 hm.input_hist_raw[:] = [''] * pc
                 # hm has internal machinery for _i,_ii,_iii, clear it out
-                hm._i = hm._ii = hm._iii = hm._i00 =  u''
+                hm._i = hm._ii = hm._iii = hm._i00 =  ''
 
             elif target == 'array':
                 # Support cleaning up numpy arrays
@@ -616,7 +639,6 @@ class NamespaceMagics(Magics):
 
         Examples
         --------
-
         We first fully reset the namespace so your output looks identical to
         this example for pedagogical reasons; in practice you do not need a
         full reset::
@@ -679,8 +701,8 @@ class NamespaceMagics(Magics):
         else:
             try:
                 m = re.compile(regex)
-            except TypeError:
-                raise TypeError('regex must be a string or compiled pattern')
+            except TypeError as e:
+                raise TypeError('regex must be a string or compiled pattern') from e
             for i in self.who_ls():
                 if m.search(i):
                     del(user_ns[i])

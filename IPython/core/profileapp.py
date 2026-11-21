@@ -1,4 +1,3 @@
-# encoding: utf-8
 """
 An application for managing IPython profiles.
 
@@ -9,7 +8,6 @@ Authors:
 * Min RK
 
 """
-from __future__ import print_function
 
 #-----------------------------------------------------------------------------
 #  Copyright (C) 2008  The IPython Development Team
@@ -31,8 +29,7 @@ from IPython.core.application import (
 from IPython.core.profiledir import ProfileDir
 from IPython.utils.importstring import import_item
 from IPython.paths import get_ipython_dir, get_ipython_package_dir
-from IPython.utils import py3compat
-from traitlets import Unicode, Bool, Dict
+from traitlets import Unicode, Bool, Dict, observe
 
 #-----------------------------------------------------------------------------
 # Constants
@@ -98,44 +95,43 @@ ipython locate profile foo # print the path to the directory for profile 'foo'
 
 def list_profiles_in(path):
     """list profiles in a given root directory"""
-    files = os.listdir(path)
     profiles = []
+
+    # for python 3.6+ rewrite to: with os.scandir(path) as dirlist:
+    files = os.scandir(path)
     for f in files:
-        try:
-            full_path = os.path.join(path, f)
-        except UnicodeError:
-            continue
-        if os.path.isdir(full_path) and f.startswith('profile_'):
-            profiles.append(f.split('_',1)[-1])
+        if f.is_dir() and f.name.startswith('profile_'):
+            profiles.append(f.name.split('_', 1)[-1])
     return profiles
 
 
 def list_bundled_profiles():
     """list profiles that are bundled with IPython."""
-    path = os.path.join(get_ipython_package_dir(), u'core', u'profile')
-    files = os.listdir(path)
+    path = os.path.join(get_ipython_package_dir(), 'core', 'profile')
     profiles = []
+
+    # for python 3.6+ rewrite to: with os.scandir(path) as dirlist:
+    files =  os.scandir(path)
     for profile in files:
-        full_path = os.path.join(path, profile)
-        if os.path.isdir(full_path) and profile != "__pycache__":
-            profiles.append(profile)
+        if profile.is_dir() and profile.name != "__pycache__":
+            profiles.append(profile.name)
     return profiles
 
 
 class ProfileLocate(BaseIPythonApplication):
     description = """print the path to an IPython profile dir"""
-    
+
     def parse_command_line(self, argv=None):
-        super(ProfileLocate, self).parse_command_line(argv)
+        super().parse_command_line(argv)
         if self.extra_args:
             self.profile = self.extra_args[0]
-    
+
     def start(self):
         print(self.profile_dir.location)
 
 
 class ProfileList(Application):
-    name = u'ipython-profile'
+    name = 'ipython-profile'
     description = list_help
     examples = _list_examples
 
@@ -149,14 +145,14 @@ class ProfileList(Application):
         )
     ))
 
-    ipython_dir = Unicode(get_ipython_dir(), config=True,
+    ipython_dir = Unicode(get_ipython_dir(),
         help="""
         The name of the IPython directory. This directory is used for logging
         configuration (through profiles), history storage, etc. The default
         is usually $HOME/.ipython. This options can also be specified through
         the environment variable IPYTHONDIR.
         """
-    )
+    ).tag(config=True)
 
 
     def _print_profiles(self, profiles):
@@ -174,19 +170,20 @@ class ProfileList(Application):
             print("    The first request for a bundled profile will copy it")
             print("    into your IPython directory (%s)," % self.ipython_dir)
             print("    where you can customize it.")
-        
+
         profiles = list_profiles_in(self.ipython_dir)
         if profiles:
             print()
             print("Available profiles in %s:" % self.ipython_dir)
             self._print_profiles(profiles)
-        
-        profiles = list_profiles_in(py3compat.getcwd())
+
+        profiles = list_profiles_in(os.getcwd())
         if profiles:
             print()
-            print("Available profiles in current directory (%s):" % py3compat.getcwd())
-            self._print_profiles(profiles)
-        
+            print(
+                "Profiles from CWD have been removed for security reason, see CVE-2022-21699:"
+            )
+
         print()
         print("To use any of the above profiles, start IPython with:")
         print("    ipython --profile=<name>")
@@ -208,24 +205,27 @@ create_flags['parallel'] = ({'ProfileCreate': {'parallel' : True}},
 
 
 class ProfileCreate(BaseIPythonApplication):
-    name = u'ipython-profile'
+    name = 'ipython-profile'
     description = create_help
     examples = _create_examples
-    auto_create = Bool(True, config=False)
+    auto_create = Bool(True).tag(config=True)
     def _log_format_default(self):
         return "[%(name)s] %(message)s"
 
     def _copy_config_files_default(self):
         return True
 
-    parallel = Bool(False, config=True,
-        help="whether to include parallel computing config files")
-    def _parallel_changed(self, name, old, new):
+    parallel = Bool(False,
+        help="whether to include parallel computing config files"
+    ).tag(config=True)
+
+    @observe('parallel')
+    def _parallel_changed(self, change):
         parallel_files = [   'ipcontroller_config.py',
                             'ipengine_config.py',
                             'ipcluster_config.py'
                         ]
-        if new:
+        if change['new']:
             for cf in parallel_files:
                 self.config_files.append(cf)
         else:
@@ -234,7 +234,7 @@ class ProfileCreate(BaseIPythonApplication):
                     self.config_files.remove(cf)
 
     def parse_command_line(self, argv):
-        super(ProfileCreate, self).parse_command_line(argv)
+        super().parse_command_line(argv)
         # accept positional arg as profile name
         if self.extra_args:
             self.profile = self.extra_args[0]
@@ -242,7 +242,7 @@ class ProfileCreate(BaseIPythonApplication):
     flags = Dict(create_flags)
 
     classes = [ProfileDir]
-    
+
     def _import_app(self, app_path):
         """import an app class"""
         app = None
@@ -256,7 +256,7 @@ class ProfileCreate(BaseIPythonApplication):
         return app
 
     def init_config_files(self):
-        super(ProfileCreate, self).init_config_files()
+        super().init_config_files()
         # use local imports, since these classes may import from here
         from IPython.terminal.ipapp import TerminalIPythonApp
         apps = [TerminalIPythonApp]
@@ -290,7 +290,7 @@ class ProfileCreate(BaseIPythonApplication):
 
 
 class ProfileApp(Application):
-    name = u'ipython profile'
+    name = 'ipython profile'
     description = profile_help
     examples = _main_examples
 
@@ -302,8 +302,11 @@ class ProfileApp(Application):
 
     def start(self):
         if self.subapp is None:
-            print("No subcommand specified. Must specify one of: %s"%(self.subcommands.keys()))
-            print()
+            print(
+                "No subcommand specified. Must specify one of: "
+                + ", ".join(map(repr, self.subcommands))
+                + ".\n"
+            )
             self.print_description()
             self.print_subcommands()
             self.exit(1)
